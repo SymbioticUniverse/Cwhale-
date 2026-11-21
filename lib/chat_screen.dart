@@ -20,6 +20,7 @@ import 'deepseek_chat_import_page.dart';
 import 'document_memory.dart';
 import 'document_processor.dart';
 import 'generation_protection.dart';
+import 'github_update_service.dart';
 import 'humanizer_skill.dart';
 import 'local_store.dart';
 import 'story_simulator.dart';
@@ -7194,6 +7195,102 @@ class _SettingsPageState extends State<SettingsPage> {
   late bool _timestampEnabled = widget.settings.injectLocalTimestamp;
   late bool _darkThemeEnabled = widget.settings.useDarkTheme;
   bool _allowPop = false;
+  bool _checkingUpdates = false;
+
+  Future<void> _checkForUpdates() async {
+    if (_checkingUpdates) return;
+    setState(() => _checkingUpdates = true);
+    try {
+      final release = await GitHubUpdateService.fetchLatestRelease();
+      if (!mounted) return;
+      if (!release.isNewerThan(appVersion)) {
+        await showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('已是最新版本'),
+            content: Text('当前版本：$appVersion'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('知道了'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
+      final shouldDownload = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('发现新版本 ${release.version}'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('当前版本：$appVersion'),
+                  const SizedBox(height: 8),
+                  Text('安装包：${release.apkName}'),
+                  if (release.notes.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Text(
+                      '更新说明',
+                      style: TextStyle(
+                        color: _ink,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(release.notes, style: TextStyle(color: _muted)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('稍后'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('下载更新'),
+            ),
+          ],
+        ),
+      );
+      if (shouldDownload != true || !mounted) return;
+      try {
+        await LocalFileOpener().openUrl(release.apkUrl);
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text('无法打开 APK 下载：$error')));
+        }
+      }
+    } catch (error) {
+      if (mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('检查更新失败'),
+            content: Text(error.toString()),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('知道了'),
+              ),
+            ],
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _checkingUpdates = false);
+    }
+  }
 
   Future<void> _openBackgroundSettings() async {
     final alreadyAllowed =
@@ -7340,6 +7437,7 @@ class _SettingsPageState extends State<SettingsPage> {
             '发送消息时，手机通过 HTTPS 直接连接当前对话所选的 API 配置地址，使用 OpenAI 兼容 Chat Completions 协议。Cwhale 不接收或转发请求。全局系统提示词作为 system 前缀加入模型、工具后续和摘要压缩请求。\n\n'
             '只有用户明确开启联网搜索，或明确提出搜索请求时，手机才直连公开网页。搜索词会发送到搜索来源，网页请求会发送到对应网站；搜索结果仅用于本轮模型上下文。天气查询和其他工具也由手机直连对应公开服务。\n\n'
             '自动或手动摘要由当前对话所选档案的模型生成；摘要保存在本机，原始聊天不删除。API Key 通过 Authorization: Bearer 请求头直发配置地址，不写入聊天正文、明文配置文件或安装包。\n\n'
+            '用户手动点击“检查更新”时，手机会向 GitHub Releases 查询公开版本信息；下载链接由系统浏览器打开。此过程不发送聊天、记忆、API Key 或文件。安装 APK 仍由用户确认。\n\n'
             '打开“每次请求附带本地时间戳”后，每次模型请求会附带设备本地日期、时间与时区。DeepSeek 深度思考参数只会在当前地址为 DeepSeek API 时发送。服务商会按其条款处理请求数据并可能计费，请查看对应服务政策。',
             style: TextStyle(height: 1.55),
           ),
@@ -7538,7 +7636,29 @@ class _SettingsPageState extends State<SettingsPage> {
                 contentPadding: EdgeInsets.symmetric(horizontal: 16),
                 leading: Icon(Icons.info_outline_rounded, color: _green),
                 title: Text('Cwhale'),
-                subtitle: Text('版本 $appVersion · 基准版'),
+                subtitle: Text('版本 $appVersion'),
+              ),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                leading: Icon(Icons.system_update_alt_rounded, color: _green),
+                title: const Text('检查更新'),
+                subtitle: Text(
+                  _checkingUpdates
+                      ? '正在查询 GitHub Releases…'
+                      : '检查并下载 GitHub 上的新版本',
+                  style: TextStyle(color: _muted, fontSize: 11),
+                ),
+                trailing: _checkingUpdates
+                    ? SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: _green,
+                        ),
+                      )
+                    : Icon(Icons.chevron_right_rounded, color: _muted),
+                onTap: _checkingUpdates ? null : _checkForUpdates,
               ),
               ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16),
