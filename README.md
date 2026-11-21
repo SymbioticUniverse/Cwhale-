@@ -239,16 +239,15 @@ sequenceDiagram
 
 ## 本地开发
 
-本机 Flutter SDK 位于 E:\Schat\devtools\flutter。在 Windows PowerShell 中：
+请先在本机安装 Flutter SDK、Android SDK 和兼容的 JDK，并确保 `flutter` 命令可用。然后在 Windows PowerShell 中运行：
 
 ~~~powershell
-$env:JAVA_HOME = 'E:\Schat\devtools\jdk\jdk-17.0.21+9'
-$env:ANDROID_HOME = 'E:\Schat\devtools\android-sdk'
-$env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
-$env:GRADLE_USER_HOME = 'E:\Schat\devtools\gradle-home'
-& 'E:\Schat\devtools\flutter\bin\flutter.bat' pub get
-& 'E:\Schat\devtools\flutter\bin\flutter.bat' run
+flutter doctor
+flutter pub get
+flutter run
 ~~~
+
+如果 Flutter 未自动发现 Android SDK 或 JDK，请在本机按实际安装位置设置 `ANDROID_HOME`（或 `ANDROID_SDK_ROOT`）和 `JAVA_HOME`。这些路径属于本机环境，不应提交到版本库。Android SDK 路径也可以保存在本机生成的 `android/local.properties` 中。
 
 ## Android APK
 

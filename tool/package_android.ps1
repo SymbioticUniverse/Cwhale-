@@ -44,19 +44,6 @@ if (-not [string]::IsNullOrWhiteSpace($localProperties['sdk.dir']) -and
     $env:ANDROID_HOME = $localProperties['sdk.dir']
     $env:ANDROID_SDK_ROOT = $localProperties['sdk.dir']
 }
-if ([string]::IsNullOrWhiteSpace($env:JAVA_HOME)) {
-    $knownJavaHome = 'E:\Schat\devtools\jdk\jdk-17.0.21+9'
-    if (Test-Path -LiteralPath $knownJavaHome) {
-        $env:JAVA_HOME = $knownJavaHome
-    }
-}
-if ([string]::IsNullOrWhiteSpace($env:GRADLE_USER_HOME)) {
-    $knownGradleHome = 'E:\Schat\devtools\gradle-home'
-    if (Test-Path -LiteralPath $knownGradleHome) {
-        $env:GRADLE_USER_HOME = $knownGradleHome
-    }
-}
-
 $flutterCommand = Get-Command flutter -ErrorAction SilentlyContinue
 $flutterExe = $null
 if ($null -ne $flutterCommand) {
