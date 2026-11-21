@@ -1,0 +1,13 @@
+{
+  "data": {
+    "stories": [
+      {
+        "slug": "port-17",
+        "headline": "港口图书馆周六开放",
+        "intro": "用于映射联调的虚构新闻。",
+        "published": "2026-11-20T08:00:00+08:00",
+        "url": "https://news.example/story/port-17"
+      }
+    ]
+  }
+}

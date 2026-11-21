@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <rect width="1024" height="1024" fill="#FFFFFF"/>
+  <g fill="none" stroke="#25292E" stroke-width="25" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 681 263 C 573 190 425 205 325 312 C 212 430 220 586 320 672 C 338 688 354 685 344 710"/>
+  </g>
+  <g fill="none" stroke="#68717A" stroke-width="25" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 343 761 C 451 834 599 819 699 712 C 812 594 804 438 704 352 C 686 336 670 339 680 314"/>
+  </g>
+  <g fill="#25292E"><ellipse cx="706" cy="288" rx="38" ry="25" transform="rotate(45 706 288)"/></g>
+  <g fill="#68717A"><ellipse cx="318" cy="736" rx="38" ry="25" transform="rotate(225 318 736)"/></g>
+</svg>

@@ -1,0 +1,14 @@
+{
+  "id": "port-17",
+  "title": "港口图书馆周六开放",
+  "summary": "用于映射联调的虚构新闻。",
+  "publishedAt": "2026-11-20T08:00:00+08:00",
+  "sourceUrl": "https://news.example/story/port-17",
+  "sourceName": "城市通讯（示例）",
+  "offers": [
+    {
+      "kind": "open",
+      "target": "https://news.example/story/port-17"
+    }
+  ]
+}

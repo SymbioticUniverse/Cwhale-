@@ -1,0 +1,21 @@
+{
+  "type": "result",
+  "id": "22222222-2222-4222-8222-222222222222",
+  "version": "0.1",
+  "items": [
+    {
+      "id": "film-17",
+      "title": "最后一班渡轮",
+      "subtitle": "2026 · 虚构示例",
+      "summary": "丧尸题材短片，用于演示来源页跳转。",
+      "sourceName": "示例影社",
+      "sourceUrl": "https://film.example/titles/17",
+      "offers": [
+        {
+          "kind": "open",
+          "target": "https://film.example/titles/17"
+        }
+      ]
+    }
+  ]
+}

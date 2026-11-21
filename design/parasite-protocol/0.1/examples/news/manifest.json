@@ -1,0 +1,54 @@
+{
+  "type": "manifest",
+  "protocol": "0.1",
+  "pluginId": "example.citydesk",
+  "packageVersion": "1.0.0",
+  "name": "城市新闻卡",
+  "author": "社区作者（示例）",
+  "provider": "城市通讯（示例）",
+  "permissions": [
+    "query.remote",
+    "link.open"
+  ],
+  "domains": [
+    "news.example"
+  ],
+  "assets": {},
+  "operations": [
+    {
+      "capability": "news.search",
+      "description": "按关键词查询地方新闻",
+      "params": {
+        "q": {
+          "type": "text",
+          "required": true
+        }
+      },
+      "view": [
+        "heading",
+        "byline",
+        "published",
+        "summary",
+        "offers",
+        "refresh"
+      ]
+    }
+  ],
+  "adapter": {
+    "mode": "mapped",
+    "origin": "https://news.example",
+    "path": "/api/articles",
+    "query": {
+      "q": "keyword"
+    },
+    "itemsPointer": "/data/stories",
+    "fields": {
+      "id": "/slug",
+      "title": "/headline",
+      "summary": "/intro",
+      "publishedAt": "/published",
+      "sourceUrl": "/url"
+    },
+    "offer": "open"
+  }
+}

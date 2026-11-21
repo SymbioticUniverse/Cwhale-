@@ -1,0 +1,40 @@
+{
+  "type": "manifest",
+  "protocol": "0.1",
+  "packageVersion": "1.0.0",
+  "author": "Parasite 协议示例组",
+  "pluginId": "example.filmclub",
+  "name": "电影推荐卡",
+  "provider": "示例影社",
+  "permissions": [
+    "query.remote",
+    "link.open"
+  ],
+  "domains": [
+    "film.example"
+  ],
+  "assets": {},
+  "operations": [
+    {
+      "capability": "movie.search",
+      "description": "按片名或题材查询影片",
+      "params": {
+        "q": {
+          "type": "text",
+          "required": true
+        }
+      },
+      "view": [
+        "heading",
+        "byline",
+        "summary",
+        "offers"
+      ]
+    }
+  ],
+  "adapter": {
+    "mode": "https",
+    "origin": "https://film.example",
+    "auth": "none"
+  }
+}

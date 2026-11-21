@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <radialGradient id="tile" cx="50%" cy="50%" r="72%">
+      <stop offset="0" stop-color="#2C0874"/>
+      <stop offset="1" stop-color="#13002F"/>
+    </radialGradient>
+    <radialGradient id="host" cx="50%" cy="50%" r="72%">
+      <stop offset="0" stop-color="#FFAA4D"/>
+      <stop offset="1" stop-color="#F43D62"/>
+    </radialGradient>
+    <linearGradient id="signal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12EAF2"/>
+      <stop offset="1" stop-color="#168BFF"/>
+    </linearGradient>
+    <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="196" fill="url(#tile)"/>
+  <path d="M220 265 L286 322 L350 322 L374 374 L399 410 L512 512 L625 614 L650 650 L674 702 L738 702 L804 759"
+        fill="none" stroke="#10DFF2" stroke-width="60" stroke-linecap="round" stroke-linejoin="round" opacity=".22" filter="url(#softGlow)"/>
+  <polygon points="512,346 660,420 650,590 512,678 364,604 374,434" fill="url(#host)" stroke="#FFD08A" stroke-width="4"/>
+  <path d="M220 265 L286 322 L350 322 L374 374 L399 410 L512 512 L625 614 L650 650 L674 702 L738 702 L804 759"
+        fill="none" stroke="#15DCF2" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M220 265 L286 322 L350 322 L374 374 L399 410 L512 512 L625 614 L650 650 L674 702 L738 702 L804 759"
+        fill="none" stroke="#C8FFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity=".72"/>
+  <g fill="#75FBFF" stroke="#D7FFFF" stroke-width="4">
+    <circle cx="220" cy="265" r="25"/>
+    <circle cx="804" cy="759" r="25"/>
+  </g>
+</svg>
+

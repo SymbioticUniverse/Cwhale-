@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <radialGradient id="background" cx="50%" cy="50%" r="72%">
+      <stop offset="0" stop-color="#26065F"/>
+      <stop offset="1" stop-color="#14002F"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="196" fill="url(#background)"/>
+  <g fill="none" stroke="#36DDEC" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 512 150 C 675 150 805 250 850 396"/>
+    <path d="M 872 462 C 884 609 791 748 649 817"/>
+    <path d="M 512 874 C 349 874 219 774 174 628"/>
+    <path d="M 152 562 C 140 415 233 276 375 207"/>
+  </g>
+  <g fill="none" stroke="#80F6F4" stroke-width="5" stroke-linecap="round" opacity=".9">
+    <path d="M 587 185 C 691 191 778 266 809 358"/>
+    <path d="M 437 839 C 333 833 246 758 215 666"/>
+    <path d="M 843 527 C 844 615 780 696 696 744"/>
+    <path d="M 181 497 C 180 409 244 328 328 280"/>
+  </g>
+  <path d="M 512 512 C 480 453 430 430 396 465 C 354 509 408 555 512 512 C 544 571 594 594 628 559 C 670 515 616 469 512 512"
+        fill="none" stroke="#A3FBF7" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="512" cy="512" r="20" fill="#FF946E" stroke="#FFD3A2" stroke-width="4"/>
+</svg>

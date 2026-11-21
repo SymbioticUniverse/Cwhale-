@@ -1,0 +1,51 @@
+{
+  "type": "manifest",
+  "protocol": "0.1",
+  "packageVersion": "1.0.0",
+  "author": "Parasite 协议示例组",
+  "pluginId": "example.twotones",
+  "name": "两音试听卡",
+  "provider": "两音工作室（示例）",
+  "permissions": [
+    "media.preview"
+  ],
+  "domains": [],
+  "assets": {
+    "assets/two-notes.wav": "16bb6802dc59b634104171286fb531ee4a477e0c49648515b318a3f9b7463450"
+  },
+  "operations": [
+    {
+      "capability": "music.search",
+      "description": "按作品或作者查找可试听作品",
+      "params": {
+        "q": {
+          "type": "text",
+          "required": true
+        }
+      },
+      "view": [
+        "heading",
+        "byline",
+        "offers"
+      ]
+    }
+  ],
+  "adapter": {
+    "mode": "catalog",
+    "entries": [
+      {
+        "id": "recording-1",
+        "title": "两音",
+        "subtitle": "两音工作室",
+        "sourceName": "两音工作室（示例）",
+        "offers": [
+          {
+            "kind": "preview",
+            "target": "asset:assets/two-notes.wav",
+            "mime": "audio/wav"
+          }
+        ]
+      }
+    ]
+  }
+}

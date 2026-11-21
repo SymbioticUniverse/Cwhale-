@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f6f2">
+  <title>Cwhale · Android 下载</title>
+  <style>
+    :root { color-scheme: light; --ink:#1d2c3d; --muted:#75818a; --green:#477d73; --paper:#f7f6f2; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; padding:24px; background:radial-gradient(ellipse at 80% 5%,#e6eee9 0,transparent 42%),var(--paper); color:var(--ink); font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    main { width:min(100%,520px); padding:36px; border:1px solid #e7e6df; border-radius:28px; background:rgba(255,255,255,.92); box-shadow:0 24px 70px #1d2c3d12; }
+    .mark { width:56px;height:56px;display:grid;place-items:center;border-radius:19px;background:#e3eee9;color:var(--green);font-size:25px; }
+    h1 { margin:20px 0 3px;font-size:32px;letter-spacing:-.6px; }
+    .sub { margin:0 0 24px;color:var(--muted); }
+    .download { display:flex;justify-content:center;align-items:center;gap:10px;width:100%;min-height:56px;border-radius:16px;background:var(--green);color:#fff;text-decoration:none;font-weight:700; }
+    .meta { margin:11px 0 25px;text-align:center;color:var(--muted);font-size:13px; }
+    .privacy { padding:15px;border-radius:16px;background:#f5f5f1;font-size:13px; }
+    .privacy strong { display:block;margin-bottom:4px; }
+    .privacy p { margin:0;color:#52616b; }
+    a.text { display:inline-block;margin-top:13px;color:var(--green);font-weight:650; }
+    .hash { margin-top:19px;padding-top:15px;border-top:1px solid #ecebe6;color:var(--muted);font-size:11px;overflow-wrap:anywhere; }
+    .hash code { color:#58626a; }
+    @media (max-width:480px) { main { padding:26px 22px;border-radius:22px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark" aria-hidden="true">✳</div>
+    <h1>Cwhale</h1>
+    <p class="sub">轻一点开始对话，记忆留在自己手里。</p>
+    <a class="download" href="./Cwhale-1.0.0.apk" download>
+      <span aria-hidden="true">↓</span> 下载 Android 安装包
+    </a>
+    <p class="meta">版本 1.0.0 · Android 7.0 及以上 · 约 59 MB</p>
+    <section class="privacy">
+      <strong>你的 API Key，由你自己保管</strong>
+      <p>聊天记录和记忆保存在手机。回复请求由手机直接发送到 DeepSeek；API Key 只保存在手机安全存储，Cwhale 不提供 API 转发或聊天服务器。DeepSeek 可能按自己的政策处理请求并收费。</p>
+      <a class="text" href="./privacy.html">查看隐私政策与数据说明 →</a>
+      <a class="text" href="./third-party-licenses/trafilatura-LICENSE.txt">查看 Trafilatura 开源许可 →</a>
+      <a class="text" href="./third-party-licenses/html-LICENSE.txt">查看 HTML 解析器开源许可 →</a>
+    </section>
+    <div class="hash">
+      安装包 SHA-256<br>
+      <code>472da36c58a239401e3aa8516db5c52331cada7f26a809631516b1850061b341</code>
+    </div>
+  </main>
+</body>
+</html>
