@@ -218,7 +218,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _humanizerEnabled = false;
   bool _deepThinking = false;
   String _thinkingLevel = 'default';
-  final Map<String, Timer> _idleRolloverTimers = {};
   AppLifecycleState? _lastAppLifecycleState;
   final Map<String, _GenerationRunState> _generationRuns = {};
   final _accountService = AccountAuthService.instance;
@@ -230,24 +229,49 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _toggleTimestamp(bool enabled) async {
-    final updated = _settings.copyWith(injectLocalTimestamp: enabled);
-    setState(() => _settings = updated);
-    await _store.saveSettings(updated);
+    var thread = _active;
+    if (thread == null) {
+      _newChat();
+      thread = _active;
+    }
+    if (thread == null || _isThreadBusy(thread)) return;
+    thread.injectLocalTimestamp = enabled;
+    await _save();
+    if (mounted && _active?.id == thread.id) setState(() {});
   }
 
   Future<void> _toggleSearch(bool enabled) async {
-    final updated = _settings.copyWith(webSearchEnabled: enabled);
-    setState(() {
-      _settings = updated;
-      _searchEnabled = enabled;
-    });
-    await _store.saveSettings(updated);
+    var thread = _active;
+    if (thread == null) {
+      _newChat();
+      thread = _active;
+    }
+    if (thread == null || _isThreadBusy(thread)) return;
+    thread.webSearchEnabled = enabled;
+    setState(() => _searchEnabled = enabled);
+    await _save();
+  }
+
+  Future<void> _toggleHumanizer() async {
+    var thread = _active;
+    if (thread == null) {
+      _newChat();
+      thread = _active;
+    }
+    if (thread == null || _isThreadBusy(thread)) return;
+    final enabled = !(thread.humanizerEnabled ?? false);
+    thread.humanizerEnabled = enabled;
+    setState(() => _humanizerEnabled = enabled);
+    await _save();
   }
 
   Future<void> _toggleStorySimulator(bool enabled) async {
     var thread = _active;
     if (thread == null) {
-      thread = ChatThread.create(apiProfileId: _settings.defaultApiProfileId);
+      thread = ChatThread.create(
+        apiProfileId: _settings.defaultApiProfileId,
+        injectLocalTimestamp: _settings.injectLocalTimestamp,
+      );
       _active = thread;
       _threads.insert(0, thread);
       _setFollowingLatest(thread.id, true);
@@ -255,6 +279,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final activeThread = thread;
     setState(() {
       activeThread.storySimulatorEnabled = enabled;
+      final profile = _settings.profileFor(activeThread.apiProfileId);
+      _searchEnabled = activeThread.webSearchEnabled ?? false;
+      _humanizerEnabled = activeThread.humanizerEnabled ?? false;
+      _deepThinking =
+          profile.supportsThinkingToggle &&
+          (activeThread.deepThinkingEnabled ?? false);
+      _thinkingLevel = _thinkingLevelForProfile(activeThread, profile);
       if (activeThread.storyTime.trim().isEmpty) {
         activeThread.storyTime = StorySimulator.defaultStoryTime;
       }
@@ -339,9 +370,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _draft.dispose();
     _drawerSearch.dispose();
-    for (final timer in _idleRolloverTimers.values) {
-      timer.cancel();
-    }
     for (final reply in _liveReplies.values) {
       reply.dispose();
     }
@@ -540,6 +568,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         threads.removeWhere((thread) => blankThreads.contains(thread));
       }
       var threadProfilesMigrated = false;
+      var threadSettingsMigrated = false;
       var userTimestampsMigrated = false;
       for (final thread in threads) {
         if (!settings.hasApiProfile(thread.apiProfileId)) {
@@ -550,6 +579,27 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           thread.lastUserMessageAt = await _store.latestUserMessageAt(thread);
           userTimestampsMigrated =
               thread.lastUserMessageAt != null || userTimestampsMigrated;
+        }
+        // Migrate the former app-wide search preference exactly once.
+        if (thread.webSearchEnabled == null) {
+          thread.webSearchEnabled = settings.webSearchEnabled;
+          threadSettingsMigrated = true;
+        }
+        if (thread.injectLocalTimestamp == null) {
+          thread.injectLocalTimestamp = settings.injectLocalTimestamp;
+          threadSettingsMigrated = true;
+        }
+        if (thread.deepThinkingEnabled == null) {
+          thread.deepThinkingEnabled = false;
+          threadSettingsMigrated = true;
+        }
+        if (thread.thinkingLevel == null) {
+          thread.thinkingLevel = 'default';
+          threadSettingsMigrated = true;
+        }
+        if (thread.humanizerEnabled == null) {
+          thread.humanizerEnabled = false;
+          threadSettingsMigrated = true;
         }
       }
       ChatThread? active;
@@ -575,7 +625,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
       if (blankThreads.isNotEmpty ||
           threadProfilesMigrated ||
-          userTimestampsMigrated) {
+          userTimestampsMigrated ||
+          threadSettingsMigrated) {
         await _store.saveThreads(threads);
       }
       if (prunedActiveId && active == null) {
@@ -596,7 +647,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _threads = threads;
         _active = active;
         _settings = settings;
-        _searchEnabled = settings.webSearchEnabled;
+        _searchEnabled = active?.webSearchEnabled ?? false;
+        final activeProfile = settings.profileFor(active?.apiProfileId);
+        _deepThinking =
+            activeProfile.supportsThinkingToggle &&
+            (active?.deepThinkingEnabled ?? false);
+        _thinkingLevel = active == null
+            ? 'default'
+            : _thinkingLevelForProfile(active, activeProfile);
+        _humanizerEnabled = active?.humanizerEnabled ?? false;
         _importantMemories = importantMemories;
         _deletedMemoryTopics = deletedMemoryTopics;
         if (active != null) _documentsByThread[active.id] = activeDocuments;
@@ -615,7 +674,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _showMessage('已恢复一条中断的回复；本机已保存的部分内容仍可查看。');
       }
       if (active != null) _scrollToBottom(active.id);
-      if (active != null) _scheduleIdleRollover(active);
     } catch (error) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -748,16 +806,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (outgoing != null) _stashComposerDraft(outgoing.id);
     final thread = ChatThread.create(
       apiProfileId: apiProfileId ?? _settings.defaultApiProfileId,
+      injectLocalTimestamp: _settings.injectLocalTimestamp,
     );
     _setFollowingLatest(thread.id, true);
     final profile = _settings.profileFor(thread.apiProfileId);
     setState(() {
       _active = thread;
+      _searchEnabled = thread.webSearchEnabled ?? false;
+      _humanizerEnabled = thread.humanizerEnabled ?? false;
+      _deepThinking =
+          profile.supportsThinkingToggle &&
+          (thread.deepThinkingEnabled ?? false);
+      _thinkingLevel = _thinkingLevelForProfile(thread, profile);
       _restoreComposerDraft(thread);
-      if (!profile.supportsThinkingToggle) {
-        _deepThinking = false;
-        _thinkingLevel = 'default';
-      }
     });
     _scrollToBottom(thread.id);
   }
@@ -786,105 +847,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
-  void _scheduleIdleRollover(ChatThread thread) {
-    _idleRolloverTimers.remove(thread.id)?.cancel();
-    final lastUserMessage = thread.lastUserMessageAt;
-    if (thread.isArchived ||
-        thread.messageCount == 0 ||
-        lastUserMessage == null) {
-      return;
-    }
-    final remaining =
-        const Duration(hours: 2) - DateTime.now().difference(lastUserMessage);
-    _idleRolloverTimers[thread.id] = Timer(
-      remaining.isNegative ? Duration.zero : remaining,
-      () {
-        _idleRolloverTimers.remove(thread.id);
-        _handleIdleRollover(thread.id);
-      },
-    );
-  }
-
-  Future<void> _handleIdleRollover(String threadId) async {
-    ChatThread? thread;
-    for (final item in _threads) {
-      if (item.id == threadId) thread = item;
-    }
-    if (!mounted ||
-        _busyThreadIds.contains(threadId) ||
-        thread == null ||
-        thread.isArchived) {
-      return;
-    }
-    final lastUserMessage = thread.lastUserMessageAt;
-    if (lastUserMessage == null) return;
-    if (DateTime.now().difference(lastUserMessage) < const Duration(hours: 2)) {
-      _scheduleIdleRollover(thread);
-      return;
-    }
-    await _archiveAndCreateSuccessor(thread, 'idle_2h');
-    _showMessage('已在本机归档闲置对话；你下次继续相关话题时，再生成本窗口的接续摘要。');
-  }
-
-  Future<ChatThread> _archiveAndCreateSuccessor(
-    ChatThread thread,
-    String reason, {
-    Set<String>? reserveForOperation,
-  }) async {
-    if (thread.isArchived && thread.successorThreadId.isNotEmpty) {
-      for (final candidate in _threads) {
-        if (candidate.id == thread.successorThreadId) {
-          if (reserveForOperation != null &&
-              reserveForOperation.add(candidate.id)) {
-            _busyThreadIds.add(candidate.id);
-          }
-          return candidate;
-        }
-      }
-    }
-    final successor = ChatThread.create(apiProfileId: thread.apiProfileId)
-      ..handoffSourceThreadId = thread.id
-      ..handoffStatus = 'pending'
-      ..autoCompressOverride = thread.autoCompressOverride
-      ..storySimulatorEnabled = thread.storySimulatorEnabled
-      ..storyGlobalMemoryText = thread.storyGlobalMemoryText
-      ..storyTime = thread.storyTime
-      ..storySummaries.addAll(thread.storySummaries);
-    if (reserveForOperation != null && reserveForOperation.add(successor.id)) {
-      _busyThreadIds.add(successor.id);
-    }
-    thread
-      ..isArchived = true
-      ..archiveReason = reason
-      ..successorThreadId = successor.id
-      ..handoffStatus = 'pending';
-    await _store.saveWindowMemory(thread);
-    if (thread.storySimulatorEnabled ||
-        thread.storyGlobalMemoryText.isNotEmpty ||
-        thread.storySummaries.isNotEmpty) {
-      await _store.saveStorySimulatorMemory(thread);
-      await _store.saveStorySimulatorMemory(successor);
-    }
-    if (!mounted) return successor;
-    final wasActive = _active?.id == thread.id;
-    setState(() {
-      _threads.insert(0, successor);
-      if (wasActive) {
-        _active = successor;
-        _restoreComposerDraft(successor);
-      }
-      _setFollowingLatest(successor.id, true);
-      _deepThinking =
-          _settings.profileFor(successor.apiProfileId).supportsThinkingToggle &&
-          _deepThinking;
-    });
-    await _save();
-    if (wasActive) await _store.saveActiveThreadId(successor.id);
-    _scrollToBottom(successor.id);
-    _scheduleIdleRollover(successor);
-    return successor;
-  }
-
   Future<void> _generateHandoffSummary(
     ChatThread source,
     ChatThread successor, {
@@ -897,15 +859,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
     final sourceMessageIds = messages.map((message) => message.id).toList();
     final simulatorMode = source.storySimulatorEnabled;
-    final requestSettings = _settings
-        .forProfile(successor.apiProfileId)
-        .copyWith(
-          injectLocalTimestamp: simulatorMode
-              ? false
-              : _settings
-                    .forProfile(successor.apiProfileId)
-                    .injectLocalTimestamp,
-        );
+    final baseSettings = _settings.forProfile(successor.apiProfileId);
+    final requestSettings = baseSettings.copyWith(
+      injectLocalTimestamp: simulatorMode
+          ? false
+          : successor.injectLocalTimestamp ?? baseSettings.injectLocalTimestamp,
+    );
     const chunkInstruction =
         '你负责为下一段对话制作当前窗口专属的接续摘要。只整理这段对话中仍有延续价值的主题、用户目标与约束、已确认决定、关键事实、重要人物或项目、未完成事项和最后进度；淡化已完成任务和无关闲聊。区分事实与推测，不补造信息，不调用工具。若提供了下一条用户关注点，优先保留回答该关注点所需的上下文，同时保留其他仍未完成的重要事项。用简洁中文分点，控制在约 1200 个汉字以内。';
     const mergeInstruction =
@@ -1398,14 +1357,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _pendingDocumentName = pending?.name;
         }
         _setFollowingLatest(thread.id, true);
-        if (!_settings.profileFor(thread.apiProfileId).supportsThinkingToggle) {
-          _deepThinking = false;
-          _thinkingLevel = 'default';
-        }
+        final profile = _settings.profileFor(thread.apiProfileId);
+        _searchEnabled = thread.webSearchEnabled ?? false;
+        _humanizerEnabled = thread.humanizerEnabled ?? false;
+        _deepThinking =
+            profile.supportsThinkingToggle &&
+            (thread.deepThinkingEnabled ?? false);
+        _thinkingLevel = _thinkingLevelForProfile(thread, profile);
       });
       await _store.saveActiveThreadId(thread.id);
       _scrollToBottom(thread.id);
-      _scheduleIdleRollover(thread);
       if (interruptedRecovered) {
         _showMessage('已恢复一条中断的回复；本机已保存的部分内容仍可查看。');
       }
@@ -1831,15 +1792,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           .map((item) => '${item.role == 'user' ? '用户' : '助手'}：${item.content}')
           .join('\n');
       final simulatorMode = thread.storySimulatorEnabled;
-      final settings = _settings
-          .forProfile(thread.apiProfileId)
-          .copyWith(
-            injectLocalTimestamp: simulatorMode
-                ? false
-                : _settings
-                      .forProfile(thread.apiProfileId)
-                      .injectLocalTimestamp,
-          );
+      final baseSettings = _settings.forProfile(thread.apiProfileId);
+      final settings = baseSettings.copyWith(
+        injectLocalTimestamp: simulatorMode
+            ? false
+            : thread.injectLocalTimestamp ?? baseSettings.injectLocalTimestamp,
+      );
       final turn = await _client.streamReply(
         settings: settings,
         messages: [
@@ -1894,8 +1852,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ChatThread thread,
     ChatMessage message,
   ) async {
-    final thinkingEnabled = _deepThinking;
-    final thinkingLevel = _thinkingLevel;
+    final profile = _settings.profileFor(thread.apiProfileId);
+    final thinkingEnabled =
+        profile.supportsThinkingToggle && (thread.deepThinkingEnabled ?? false);
+    final thinkingLevel = _thinkingLevelForProfile(thread, profile);
     final localIndex = thread.messages.indexOf(message);
     if (localIndex <= 0) {
       _showMessage('找不到这条回复对应的问题。');
@@ -1974,9 +1934,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             ),
     ];
     final baseSettings = _settings.forProfile(thread.apiProfileId);
-    final settings = thread.storySimulatorEnabled
-        ? baseSettings.copyWith(injectLocalTimestamp: false)
-        : baseSettings;
+    final settings = baseSettings.copyWith(
+      injectLocalTimestamp: thread.storySimulatorEnabled
+          ? false
+          : thread.injectLocalTimestamp ?? baseSettings.injectLocalTimestamp,
+    );
     final regenerateWithThinking =
         settings.supportsThinkingToggle &&
         (thinkingLevel == 'default' ? thinkingEnabled : thinkingLevel != 'off');
@@ -2344,7 +2306,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
     await _store.deleteGeneratedFiles(generatedPaths);
     await _store.deleteThreadArchive(thread.id);
-    _idleRolloverTimers.remove(thread.id)?.cancel();
     _documentsByThread.remove(thread.id);
     _scrollControllers.remove(thread.id)?.dispose();
     _viewportKeys.remove(thread.id);
@@ -2353,7 +2314,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _followingLatest.remove(thread.id)?.dispose();
     setState(() {
       _threads.removeWhere((item) => item.id == thread.id);
-      if (wasActive) _active = replacement;
+      if (wasActive) {
+        _active = replacement;
+        final replacementProfile = _settings.profileFor(
+          replacement?.apiProfileId,
+        );
+        _searchEnabled = replacement?.webSearchEnabled ?? false;
+        _humanizerEnabled = replacement?.humanizerEnabled ?? false;
+        _deepThinking =
+            replacementProfile.supportsThinkingToggle &&
+            (replacement?.deepThinkingEnabled ?? false);
+        _thinkingLevel = replacement == null
+            ? 'default'
+            : _thinkingLevelForProfile(replacement, replacementProfile);
+      }
     });
     await _save();
     if (wasActive) {
@@ -2842,18 +2816,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (initialThread != null && _busyThreadIds.contains(initialThread.id)) {
       return;
     }
-    final deepThinkingForSend = _deepThinking;
-    final thinkingLevelForSend = _thinkingLevel;
-    final searchEnabledForSend = _searchEnabled;
-    final humanizerEnabledForSend = _humanizerEnabled;
     final originThread =
         initialThread ??
-        ChatThread.create(apiProfileId: _settings.defaultApiProfileId);
+        ChatThread.create(
+          apiProfileId: _settings.defaultApiProfileId,
+          injectLocalTimestamp: _settings.injectLocalTimestamp,
+        );
+    final profileForSend = _settings.profileFor(originThread.apiProfileId);
+    final deepThinkingForSend =
+        profileForSend.supportsThinkingToggle &&
+        (originThread.deepThinkingEnabled ?? false);
+    final thinkingLevelForSend = _thinkingLevelForProfile(
+      originThread,
+      profileForSend,
+    );
+    final searchEnabledForSend = originThread.webSearchEnabled ?? false;
+    final humanizerEnabledForSend = originThread.humanizerEnabled ?? false;
     final originThreadId = originThread.id;
     final reservedThreadIds = <String>{originThreadId};
     _busyThreadIds.addAll(reservedThreadIds);
     if (suggestedText == null) _draft.clear();
-    if (humanizerEnabledForSend) _humanizerEnabled = false;
     _pendingAttachments = <PickedOfficeFile>[];
     _pendingDocumentId = null;
     _pendingDocumentName = null;
@@ -2873,7 +2855,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         pendingDocumentId: pendingDocumentId,
         pendingDocumentName: pendingDocumentName,
         originThread: originThread,
-        reservedThreadIds: reservedThreadIds,
         deepThinkingEnabled: deepThinkingForSend,
         thinkingLevel: thinkingLevelForSend,
         searchEnabled: searchEnabledForSend,
@@ -2891,7 +2872,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     required String? pendingDocumentId,
     required String? pendingDocumentName,
     required ChatThread originThread,
-    required Set<String> reservedThreadIds,
     required bool deepThinkingEnabled,
     required String thinkingLevel,
     required bool searchEnabled,
@@ -2929,26 +2909,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
     }
 
-    var activeThread = thread;
-    if (activeThread.isArchived && activeThread.successorThreadId.isNotEmpty) {
-      for (final candidate in _threads) {
-        if (candidate.id == activeThread.successorThreadId) {
-          activeThread = candidate;
-          if (reservedThreadIds.add(candidate.id)) {
-            _busyThreadIds.add(candidate.id);
-          }
-          if (mounted && _active?.id == originThread.id) {
-            setState(() {
-              _active = candidate;
-              _restoreComposerDraft(candidate);
-            });
-            await _store.saveActiveThreadId(candidate.id);
-          }
-          break;
-        }
-      }
-    }
-    requestSettings = _settings.forProfile(activeThread.apiProfileId);
+    final activeThread = thread;
+    final profileSettings = _settings.forProfile(activeThread.apiProfileId);
+    requestSettings = profileSettings.copyWith(
+      injectLocalTimestamp:
+          activeThread.injectLocalTimestamp ??
+          profileSettings.injectLocalTimestamp,
+    );
     await _ensureLatestMessagePage(activeThread);
     await _documentsForThread(activeThread, refresh: true);
     if (!mounted) return;
@@ -2983,20 +2950,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       selectedDocumentId = pendingDocument?.id;
       selectedDocumentName = pendingDocument?.name;
     }
-    final lastUserAt = activeThread.lastUserMessageAt;
-    if (activeThread.messageCount > 0 &&
-        !activeThread.isArchived &&
-        pendingDocument == null &&
-        attachedDocumentToResume == null &&
-        lastUserAt != null &&
-        DateTime.now().difference(lastUserAt) >= const Duration(hours: 2)) {
-      activeThread = await _archiveAndCreateSuccessor(
-        activeThread,
-        'idle_2h',
-        reserveForOperation: reservedThreadIds,
-      );
-      requestSettings = _settings.forProfile(activeThread.apiProfileId);
-    }
     final question = text.isNotEmpty
         ? text
         : pendingDocument?.initialQuestion.trim().isNotEmpty == true
@@ -3012,16 +2965,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         (documentWillBeAttached ? 2000 : 0) +
         12;
     if (activeThread.messageCount > 0 &&
-        !activeThread.isArchived &&
         pendingDocument == null &&
         attachedDocumentToResume == null &&
         projectedContext >= requestSettings.contextWindowTokens * 0.8) {
-      activeThread = await _archiveAndCreateSuccessor(
-        activeThread,
-        'context_80_percent',
-        reserveForOperation: reservedThreadIds,
-      );
-      requestSettings = _settings.forProfile(activeThread.apiProfileId);
+      // Keep the user's current window selected. Reduce active context in place;
+      // the complete transcript remains in the local archive.
+      try {
+        await _compressOldContext(activeThread);
+      } catch (error) {
+        _showMessage(
+          '上下文压缩失败，仍在当前窗口发送：${error.toString().replaceFirst('Exception: ', '')}',
+        );
+      }
     }
     final simulatorMode = activeThread.storySimulatorEnabled;
     if (simulatorMode) {
@@ -3347,7 +3302,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       activeThread.lastUserMessageAt = DateTime.now();
       _touchThread(activeThread);
     });
-    _scheduleIdleRollover(activeThread);
     _setFollowingLatest(activeThread.id, true);
     _scrollToBottom(activeThread.id);
 
@@ -3479,6 +3433,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ..add('open_web_page');
       }
       if (plan.includeConversationContext &&
+          _isExplicitHandoffContinuation(question) &&
           activeThread.handoffSourceThreadId.isNotEmpty &&
           (activeThread.handoffStatus == 'pending' ||
               activeThread.handoffStatus == 'failed')) {
@@ -3779,20 +3734,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _touchThread(activeThread);
       await _save();
       generationOutcome = 'completed';
-      if (!activeThread.isArchived &&
-          _contextUsageFor(activeThread).percent >= 80) {
-        final source = activeThread;
-        final successor = await _archiveAndCreateSuccessor(
-          source,
-          'context_80_percent',
-          reserveForOperation: reservedThreadIds,
-        );
-        await _tryGenerateHandoffSummary(
-          source,
-          successor,
-          focusQuery: _latestUserQuery(source),
-          requireRelevance: false,
-        );
+      if (_contextUsageFor(activeThread).percent >= 80) {
+        try {
+          await _compressOldContext(activeThread);
+        } catch (error) {
+          _showMessage(
+            '当前回复已保存；自动压缩失败：${error.toString().replaceFirst('Exception: ', '')}',
+          );
+        }
       }
     } catch (error) {
       checkpointTimer?.cancel();
@@ -3862,7 +3811,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _generationRuns.remove(assistantMessage.id);
       if (mounted) {
         _setThreadActivity(activeThread.id, '');
-        _scheduleIdleRollover(activeThread);
         _scrollToBottom(activeThread.id);
       }
     }
@@ -4114,11 +4062,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   bool _handoffIsRelevant(String summary, String query) {
     if (summary.trim().isEmpty || query.trim().isEmpty) return false;
-    if (_isExplicitHandoffContinuation(query)) return true;
-    final terms = _handoffTopicTerms(query);
-    if (terms.isEmpty) return false;
-    final summaryTerms = _handoffTopicTerms(summary);
-    return terms.intersection(summaryTerms).isNotEmpty;
+    // Cross-window context is loaded only when the user explicitly asks to
+    // continue the prior session; topic overlap alone is not authorization.
+    return _isExplicitHandoffContinuation(query);
   }
 
   String _latestUserQuery(ChatThread thread) {
@@ -4170,13 +4116,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         },
       {'role': 'user', 'content': transcript},
     ];
-    final settings = _settings
-        .forProfile(thread.apiProfileId)
-        .copyWith(
-          injectLocalTimestamp: simulatorMode
-              ? false
-              : _settings.forProfile(thread.apiProfileId).injectLocalTimestamp,
-        );
+    final baseSettings = _settings.forProfile(thread.apiProfileId);
+    final settings = baseSettings.copyWith(
+      injectLocalTimestamp: simulatorMode
+          ? false
+          : thread.injectLocalTimestamp ?? baseSettings.injectLocalTimestamp,
+    );
     final updated = await _client.streamReply(
       settings: settings,
       messages: summaryMessages,
@@ -4304,15 +4249,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       return;
     }
     if (thread.apiProfileId == profileId) return;
+    final profile = _settings.profileFor(profileId);
     thread.apiProfileId = profileId;
     await _save();
     if (!mounted) return;
-    final profile = _settings.profileFor(profileId);
     setState(() {
-      _thinkingLevel = 'default';
-      _deepThinking = false;
-      if (!profile.supportsThinkingToggle) {
-        _deepThinking = false;
+      if (_active?.id == thread.id) {
+        _deepThinking =
+            profile.supportsThinkingToggle &&
+            (thread.deepThinkingEnabled ?? false);
+        _thinkingLevel = _thinkingLevelForProfile(thread, profile);
       }
     });
     if (thread.messageCount == 0) _scrollToBottom(thread.id);
@@ -4348,7 +4294,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _openThinkingMenu() async {
-    final profile = _settings.profileFor(_active?.apiProfileId);
+    var thread = _active;
+    if (thread == null) {
+      _newChat();
+      thread = _active;
+    }
+    if (thread == null) return;
+    final activeThread = thread;
+    final profile = _settings.profileFor(activeThread.apiProfileId);
     if (!profile.supportsThinkingToggle) return;
     final options = <String>[
       'default',
@@ -4362,7 +4315,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       showDragHandle: true,
       builder: (context) => SafeArea(
         child: RadioGroup<String>(
-          groupValue: _thinkingLevel,
+          groupValue: _thinkingLevelForProfile(activeThread, profile),
           onChanged: (selection) => Navigator.pop(context, selection),
           child: ListView(
             shrinkWrap: true,
@@ -4379,10 +4332,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ),
     );
     if (selected == null || !mounted) return;
+    activeThread
+      ..thinkingLevel = selected
+      ..deepThinkingEnabled = selected != 'off' && selected != 'default';
     setState(() {
-      _thinkingLevel = selected;
-      _deepThinking = selected != 'off' && selected != 'default';
+      if (_active?.id == activeThread.id) {
+        _thinkingLevel = selected;
+        _deepThinking = activeThread.deepThinkingEnabled ?? false;
+      }
     });
+    await _save();
   }
 
   String _thinkingLabel(String level) => switch (level) {
@@ -4394,13 +4353,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _ => level,
   };
 
+  String _thinkingLevelForProfile(ChatThread thread, ApiProfile profile) {
+    final level = thread.thinkingLevel ?? 'default';
+    if (profile.supportsThinkingLevels || level == 'off') return level;
+    return 'default';
+  }
+
   Widget _composerMenu({
     required bool hasModelKey,
     required ApiProfile profile,
     required bool canCompress,
   }) {
     final anythingEnabled =
-        _settings.injectLocalTimestamp ||
+        (_active?.injectLocalTimestamp ?? _settings.injectLocalTimestamp) ||
         (_active?.storySimulatorEnabled ?? false) ||
         _humanizerEnabled ||
         (hasModelKey && profile.supportsThinkingToggle && _deepThinking);
@@ -4414,7 +4379,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       onSelected: (action) async {
         switch (action) {
           case _ComposerAction.timestamp:
-            await _toggleTimestamp(!_settings.injectLocalTimestamp);
+            await _toggleTimestamp(
+              !(_active?.injectLocalTimestamp ??
+                  _settings.injectLocalTimestamp),
+            );
           case _ComposerAction.thinking:
             await _openThinkingMenu();
           case _ComposerAction.compress:
@@ -4424,7 +4392,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               !(_active?.storySimulatorEnabled ?? false),
             );
           case _ComposerAction.humanizer:
-            setState(() => _humanizerEnabled = !_humanizerEnabled);
+            await _toggleHumanizer();
           case _ComposerAction.memory:
             await _openMemory();
           case _ComposerAction.newChat:
@@ -4436,7 +4404,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       itemBuilder: (context) => [
         CheckedPopupMenuItem(
           value: _ComposerAction.timestamp,
-          checked: _settings.injectLocalTimestamp,
+          checked:
+              _active?.injectLocalTimestamp ?? _settings.injectLocalTimestamp,
           enabled: !_isThreadBusy(_active),
           child: const Text('时间戳'),
         ),
@@ -4468,7 +4437,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ),
         CheckedPopupMenuItem(
           value: _ComposerAction.humanizer,
-          checked: _humanizerEnabled,
+          checked: _active?.humanizerEnabled ?? false,
           enabled: !_isThreadBusy(_active),
           child: const Text('说人话'),
         ),
@@ -4923,6 +4892,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _pendingDocumentId = null;
       _pendingDocumentName = null;
       _active = null;
+      _searchEnabled = false;
+      _humanizerEnabled = false;
+      _deepThinking = false;
+      _thinkingLevel = 'default';
     });
     _showMessage('本机聊天记录已清空。');
   }
@@ -7438,7 +7411,7 @@ class _SettingsPageState extends State<SettingsPage> {
             '只有用户明确开启联网搜索，或明确提出搜索请求时，手机才直连公开网页。搜索词会发送到搜索来源，网页请求会发送到对应网站；搜索结果仅用于本轮模型上下文。天气查询和其他工具也由手机直连对应公开服务。\n\n'
             '自动或手动摘要由当前对话所选档案的模型生成；摘要保存在本机，原始聊天不删除。API Key 通过 Authorization: Bearer 请求头直发配置地址，不写入聊天正文、明文配置文件或安装包。\n\n'
             '用户手动点击“检查更新”时，手机会向 GitHub Releases 查询公开版本信息；下载链接由系统浏览器打开。此过程不发送聊天、记忆、API Key 或文件。安装 APK 仍由用户确认。\n\n'
-            '打开“每次请求附带本地时间戳”后，每次模型请求会附带设备本地日期、时间与时区。DeepSeek 深度思考参数只会在当前地址为 DeepSeek API 时发送。服务商会按其条款处理请求数据并可能计费，请查看对应服务政策。',
+            '此选项作为新对话的时间戳默认值；已存在的对话可在各自输入区单独调整。启用后，请求会附带设备本地日期、时间与时区。服务商会按其条款处理请求数据并可能计费，请查看对应服务政策。',
             style: TextStyle(height: 1.55),
           ),
         ),
@@ -7610,7 +7583,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 activeThumbColor: _green,
                 secondary: Icon(Icons.schedule_rounded, color: _green),
                 title: Text(
-                  '每次请求附带本地时间戳',
+                  '新对话默认附带本地时间戳',
                   style: TextStyle(
                     color: _ink,
                     fontSize: 14,

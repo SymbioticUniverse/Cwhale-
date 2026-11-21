@@ -369,6 +369,11 @@ class ChatThread {
     required this.updatedAt,
     this.titleIsManual = false,
     this.apiProfileId = '',
+    this.webSearchEnabled = false,
+    this.injectLocalTimestamp = false,
+    this.deepThinkingEnabled = false,
+    this.thinkingLevel = 'default',
+    this.humanizerEnabled = false,
     this.folderName = '',
     List<ChatMessage>? messages,
     int? messageCount,
@@ -404,6 +409,11 @@ class ChatThread {
   String title;
   bool titleIsManual;
   String apiProfileId;
+  bool? webSearchEnabled;
+  bool? injectLocalTimestamp;
+  bool? deepThinkingEnabled;
+  String? thinkingLevel;
+  bool? humanizerEnabled;
   String folderName;
   final DateTime createdAt;
   DateTime updatedAt;
@@ -434,12 +444,16 @@ class ChatThread {
   String storyTime;
   final List<StoryTurnSummary> storySummaries;
 
-  factory ChatThread.create({String apiProfileId = deepSeekDefaultProfileId}) {
+  factory ChatThread.create({
+    String apiProfileId = deepSeekDefaultProfileId,
+    bool injectLocalTimestamp = false,
+  }) {
     final now = DateTime.now();
     return ChatThread(
       id: newLocalId(),
       title: '新对话',
       apiProfileId: apiProfileId,
+      injectLocalTimestamp: injectLocalTimestamp,
       createdAt: now,
       updatedAt: now,
     );
@@ -450,6 +464,12 @@ class ChatThread {
     'title': title,
     'titleIsManual': titleIsManual,
     'apiProfileId': apiProfileId,
+    if (webSearchEnabled != null) 'webSearchEnabled': webSearchEnabled,
+    if (injectLocalTimestamp != null)
+      'injectLocalTimestamp': injectLocalTimestamp,
+    if (deepThinkingEnabled != null) 'deepThinkingEnabled': deepThinkingEnabled,
+    if (thinkingLevel != null) 'thinkingLevel': thinkingLevel,
+    if (humanizerEnabled != null) 'humanizerEnabled': humanizerEnabled,
     if (folderName.isNotEmpty) 'folderName': folderName,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
@@ -490,6 +510,11 @@ class ChatThread {
       title: json['title'] as String? ?? '新对话',
       titleIsManual: json['titleIsManual'] as bool? ?? false,
       apiProfileId: json['apiProfileId'] as String? ?? '',
+      webSearchEnabled: json['webSearchEnabled'] as bool?,
+      injectLocalTimestamp: json['injectLocalTimestamp'] as bool?,
+      deepThinkingEnabled: json['deepThinkingEnabled'] as bool?,
+      thinkingLevel: json['thinkingLevel'] as String?,
+      humanizerEnabled: json['humanizerEnabled'] as bool?,
       folderName: json['folderName'] as String? ?? '',
       createdAt:
           DateTime.tryParse(json['createdAt'] as String? ?? '') ??
