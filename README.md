@@ -209,15 +209,17 @@ sequenceDiagram
   autonumber
   actor U as 用户
   participant App as Flutter 主进程
-  participant FGS as Android 本机前台服务
+  participant FGS as Android 本机前台服务和任务 Isolate
   participant API as 当前会话 API
   participant Store as 手机本机存储
 
   U->>App: 点击发送
   App->>FGS: 启动前台服务并等待系统确认
   FGS-->>U: 显示“正在生成回复”通知并持有部分唤醒锁
-  App->>API: 手机直连 HTTPS / SSE
-  API-->>App: 连续发送 SSE 数据
+  App->>FGS: 通过应用内通道提交本轮请求
+  FGS->>API: 手机直连 HTTPS / SSE
+  API-->>FGS: 连续发送 SSE 数据
+  FGS-->>App: 分批转发回复增量和最终用量
   loop 接收回复期间
     App->>Store: 定时保存本机断点
   end
@@ -226,7 +228,7 @@ sequenceDiagram
   App->>Store: 合并消息并清理断点
 ```
 
-服务只负责本机前台优先级、通知和部分唤醒锁；SSE 仍由 Flutter 主进程直接连接 API，没有原生网络代理，也没有每 15 秒轮询通知。通知在开始时显示生成状态，整轮结束或中断时更新结果。该机制尽力降低切后台后被回收的概率，不保证厂商强制清理、用户强行停止应用、Doze 网络限制或网络/VPN 中断时请求仍能完成；应用进程被杀后，未收到的数据不能在后台继续生成。已落盘的回复片段会在应用恢复后保留并标记为中断。
+Android 前台服务使用独立 Flutter 任务引擎执行 SSE，并由手机直接连接当前会话所选 API；没有原生网络代理或 Cwhale 服务端。API Key 仅随正在执行的请求通过应用内通道传递，不写入通知或文件。回复增量分批转回界面进程并定时保存到本机断点。通知在开始时显示生成状态，整轮结束或中断时更新结果；不做定时轮询。前台服务能提高切后台和熄屏期间继续生成的机会，但不保证厂商强制清理、用户强行停止应用、Doze 网络限制或网络/VPN 中断时请求仍能完成；如果 Android 终止整个应用进程，未接收的数据不能恢复。已落盘的回复片段会在应用恢复后保留并标记为中断。
 
 完整系统架构（页面导航、模块依赖、存储结构、信任边界、工具数据流、迁移和发布图）见 [ARCHITECTURE.md](ARCHITECTURE.md)。数据发送和保留说明见 [PRIVACY.md](PRIVACY.md)。
 
@@ -252,15 +254,14 @@ flutter run
 
 ## Android APK
 
-~~~powershell
-# 当前基准版 0.1.21（仅首次发布时使用，不推进版本号）
-.\tool\package_android.ps1 -UseCurrentVersion
+新增或更新 Flutter 依赖后，先运行 `flutter pub get`，再执行正式打包脚本。该脚本使用已解析的锁文件离线构建，不会在正式打包时再次联网解析依赖。
 
-# 后续每次正式打包自动推进补丁版本与 Android build number
+~~~powershell
+# 正式打包自动推进补丁版本与 Android build number
 .\tool\package_android.ps1
 ~~~
 
-版本号以 pubspec.yaml 为准，格式为 `主版本.次版本.补丁版本+AndroidBuildNumber`。正式打包脚本默认将补丁版本和 build number 各加一，并把版本写入应用设置页和下载页。当前基准版为 `0.1.21+21`；避免直接调用 Flutter 构建命令绕过版本推进。APK 输出到 `release/Cwhale-版本号.apk`。正式分发前应配置并备份自己的 Android release 签名密钥；同一个应用后续更新必须使用原签名密钥。
+版本号以 pubspec.yaml 为准，格式为 `主版本.次版本.补丁版本+AndroidBuildNumber`。正式打包脚本默认将补丁版本和 build number 各加一，并把版本写入应用设置页和下载页；避免直接调用 Flutter 构建命令绕过版本推进。APK 输出到 `release/Cwhale-版本号.apk`。正式分发前应配置并备份自己的 Android release 签名密钥；同一个应用后续更新必须使用原签名密钥。
 
 网页下载包已整理在 release/：将整个目录静态托管后，download.html 会提供安装包链接和 SHA-256 校验值。该下载页不参与模型 API 请求。正式公开前先补全 release/privacy.html 中的发布者和联系邮箱。
 

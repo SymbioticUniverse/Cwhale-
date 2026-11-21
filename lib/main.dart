@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 
 import 'app_theme.dart';
 import 'chat_screen.dart';
+import 'generation_protection.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  GenerationProtection.initialize();
   runApp(const CwhaleApp());
 }
 

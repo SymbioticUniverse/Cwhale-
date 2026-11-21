@@ -12,7 +12,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="false">
         <service
-            android:name=".GenerationForegroundService"
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
             android:exported="false"
             android:stopWithTask="false"
             android:foregroundServiceType="dataSync" />

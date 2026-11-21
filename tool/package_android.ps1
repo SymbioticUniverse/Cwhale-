@@ -83,7 +83,7 @@ try {
         [System.IO.File]::WriteAllText($versionSourcePath, $versionSourceUpdated, $pubspecUtf8)
     }
 
-    & $flutterExe build apk --release --build-name $versionName --build-number $buildNumber "--dart-define=APP_VERSION=$versionName"
+    & $flutterExe build apk --release --no-pub --build-name $versionName --build-number $buildNumber "--dart-define=APP_VERSION=$versionName"
     if ($LASTEXITCODE -ne 0) {
         throw "Flutter release 构建失败，退出码：$LASTEXITCODE"
     }

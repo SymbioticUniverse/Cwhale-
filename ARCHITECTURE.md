@@ -135,8 +135,9 @@ flowchart TB
 | `lib/api_profile_pages.dart` | API 档案列表、默认档案选择、添加/编辑/删除确认及每档上下文窗口设置 |
 | `lib/local_store.dart` | `chats-v1.json` 一次性迁移、`chats-v2.json` 索引、按窗口消息分块、重要记忆和安全存储读写 |
 | `lib/memory_router.dart` | 基于关键词的捕获、主题键、追加版本及检索 |
-| `lib/direct_model_client.dart` | 按对话档案直连 OpenAI 兼容 Chat Completions，解析 SSE 文本、推理与工具调用增量；Android 生成期间申请本机前台服务保护 |
-| `android/app/src/main/.../GenerationForegroundService.kt` | 仅在模型流式生成期间显示本机通知并提高进程优先级；不发起网络请求 |
+| `lib/direct_model_client.dart` | 按对话档案生成 OpenAI 兼容 Chat Completions 请求；Android 将请求交给前台任务引擎执行，其他平台在当前 Flutter 引擎执行 |
+| `lib/generation_protection.dart` | 启停 Android 本机前台服务、转发请求和 SSE 增量、管理并发请求 ID 与后台通知 |
+| `lib/model_stream_executor.dart` | 无 UI/存储依赖的 HTTPS/SSE 解析器，在 Android 前台任务引擎中运行并读取服务商 usage |
 | `lib/tool_executor.dart` | 执行路由器已选中且本轮获得用户授权的工具 |
 | `lib/office_tools.dart` | Office/文本读取，本地创建 Word/PPT/Excel 文件 |
 
@@ -171,7 +172,10 @@ sequenceDiagram
   end
   UI->>RP: 当前消息 + 本轮已授权工具名称
   RP->>DM: 路由请求；无聊天历史、无工具 schemas
-  DM->>DS: HTTPS Chat Completions，stream=true
+  DM->>FGS: Android 发送请求和临时 API Key
+  FGS->>DS: 手机直连 HTTPS Chat Completions，stream=true
+  DS-->>FGS: SSE 内容、工具调用与 usage
+  FGS-->>DM: 分批转发增量和最终结果
   DS-->>RP: DIRECT / CONTEXT / TOOLS / CONTEXT_TOOLS
   alt DIRECT
     RP-->>UI: 路由模型的流式回复就是最终回复
@@ -220,7 +224,7 @@ sequenceDiagram
 
 **边界说明：** 普通聊天回复通过 SSE 逐段展示。天气、时间和文件工具只在本条用户请求明确要求时提供。联网搜索开关只为当前模型请求授权；搜索不预先执行。模型判断有需要并返回 `web_search` 或 `open_web_page` tool call 后，手机才连接公开 HTTPS 来源及 Exa 托管 MCP，并将真实标题、链接、摘录或失败原因交回模型继续生成回复。搜索失败不能直接伪装成成功答案。压缩请求不带工具。用户打开「说人话」时，手机才加载随应用分发的 Humanizer skill，并将其加入本轮最终回复请求；普通路由调用不会携带该技能，关闭时也不会读入或发送技能提示词。`DirectModelClient` 会把全局系统提示词作为前缀添加到每次模型请求的 system 消息；设备本地时间戳开关打开后，每次请求还会附加本机时间 system message。模型请求和 AI 压缩均使用当前对话的 `apiProfileId` 指向的档案；新对话使用默认档案。所有档案仅支持 OpenAI 兼容 Chat Completions，不表示支持各服务商的专有协议。
 
-Android 用户发起模型请求后，Cwhale 在生成期间运行本机前台服务并显示持续通知；服务持有部分唤醒锁以减少屏幕关闭后 CPU 暂停，不访问网络。SSE 仍由 Flutter 客户端从手机直连所选 API。首个响应头等待上限为 180 秒，SSE 事件间无新数据等待上限为 10 分钟；后者不是整轮生成总时限。前台服务是尽力保持，不保证用户强行停止应用、厂商强制清理、网络/VPN切换或 Doze 期间请求一定完成；Doze 仍可能暂停网络。流式正文每两秒或达到增量阈值后写入独立的本机断点文件，完成后合并进聊天记录并清理断点；错误或重启后将未完成消息标记为中断并恢复最近落盘的部分内容。设备本机另记录有限大小的生成生命周期诊断（状态、耗时、前后台变化和接收字符数），不含提示词、回复正文或 API Key。
+Android 用户发起模型请求后，Cwhale 启动本机前台服务并显示持续通知；前台任务引擎在服务中执行 HTTPS/SSE 请求，手机仍直接连接所选 API，不经过 Cwhale 服务器或代理。API Key 通过应用内任务通道仅传递给当前请求，不写入文件或通知。回复增量分批转回界面引擎并由其每两秒或达到增量阈值后写入本机断点。首个响应头等待上限为 180 秒，SSE 事件间无新数据等待上限为 10 分钟；后者不是整轮生成总时限。前台服务是尽力保持，不保证用户强行停止应用、厂商强制清理、网络/VPN切换或 Doze 期间请求一定完成；Doze 仍可能暂停网络。完成后回复并入聊天记录并清理断点；错误或重启后将未完成消息标记为中断并恢复最近落盘的部分内容。设备本机另记录有限大小的生成生命周期诊断（状态、耗时、前后台变化和接收字符数），不含提示词、回复正文或 API Key。
 
 联网 URL 必须为 HTTPS 域名，拒绝 IP 字面量、localhost、内网和本地文件。部分 VPN 会把公网站点域名解析到 `198.18.0.0/15` fake-IP 段，或返回 Dart 无法分类的合成 DNS 结果。固定配置的 Exa、DuckDuckGo、百度、Bing、Google 搜索入口使用精确主机名白名单，并继续校验 HTTPS 证书；其他结果网页仍要求 DNS 解析为公开地址，且通过 HTTPS 证书验证。
 

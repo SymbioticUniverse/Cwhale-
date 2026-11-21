@@ -7,8 +7,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
-import android.Manifest
-import android.content.pm.PackageManager
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -47,35 +45,6 @@ class MainActivity : FlutterActivity() {
                                 result.success(false)
                             }
                         }
-                    }
-                    "start" -> {
-                        GenerationForegroundService.start(this) { started, error ->
-                            if (started) {
-                                result.success(null)
-                                requestNotificationPermissionIfNeeded()
-                            } else {
-                                result.error(
-                                    "GENERATION_SERVICE_FAILED",
-                                    error ?: "Android 未确认后台生成服务已启动。",
-                                    null,
-                                )
-                            }
-                        }
-                    }
-                    "stop" -> {
-                        GenerationForegroundService.stop(this)
-                        result.success(null)
-                    }
-                    "complete" -> {
-                        val completed = call.argument<Boolean>("completed") ?: false
-                        val receivedCharacters =
-                            call.argument<Int>("receivedCharacters") ?: 0
-                        result.success(
-                            GenerationForegroundService.complete(
-                                completed,
-                                receivedCharacters,
-                            ),
-                        )
                     }
                     else -> result.notImplemented()
                 }
@@ -151,15 +120,4 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < 33 ||
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        ) {
-            return
-        }
-        val preferences = getSharedPreferences("cwhale_runtime_permissions", MODE_PRIVATE)
-        if (preferences.getBoolean("notification_requested", false)) return
-        preferences.edit().putBoolean("notification_requested", true).apply()
-        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 4103)
-    }
 }
