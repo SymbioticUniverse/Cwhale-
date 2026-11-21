@@ -253,11 +253,14 @@ $env:GRADLE_USER_HOME = 'E:\Schat\devtools\gradle-home'
 ## Android APK
 
 ~~~powershell
-& 'E:\Schat\devtools\flutter\bin\flutter.bat' build apk --release
-Copy-Item .\build\app\outputs\flutter-apk\app-release.apk .\release\Cwhale-1.0.0.apk -Force
+# 当前基准版 0.1.21（仅首次发布时使用，不推进版本号）
+.\tool\package_android.ps1 -UseCurrentVersion
+
+# 后续每次正式打包自动推进补丁版本与 Android build number
+.\tool\package_android.ps1
 ~~~
 
-APK 输出到 build\app\outputs\flutter-apk\app-release.apk。正式分发前应配置并备份自己的 Android release 签名密钥；同一个应用后续更新必须使用原签名密钥。
+版本号以 pubspec.yaml 为准，格式为 `主版本.次版本.补丁版本+AndroidBuildNumber`。正式打包脚本默认将补丁版本和 build number 各加一，并把版本写入应用设置页和下载页。当前基准版为 `0.1.21+21`；避免直接调用 Flutter 构建命令绕过版本推进。APK 输出到 `release/Cwhale-版本号.apk`。正式分发前应配置并备份自己的 Android release 签名密钥；同一个应用后续更新必须使用原签名密钥。
 
 网页下载包已整理在 release/：将整个目录静态托管后，download.html 会提供安装包链接和 SHA-256 校验值。该下载页不参与模型 API 请求。正式公开前先补全 release/privacy.html 中的发布者和联系邮箱。
 

@@ -12,6 +12,7 @@ import 'app_theme.dart';
 import 'account_auth_page.dart';
 import 'account_auth_service.dart';
 import 'api_profile_pages.dart';
+import 'app_version.dart';
 import 'brand_mark.dart';
 import 'chat_models.dart';
 import 'direct_model_client.dart';
@@ -7537,7 +7538,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 contentPadding: EdgeInsets.symmetric(horizontal: 16),
                 leading: Icon(Icons.info_outline_rounded, color: _green),
                 title: Text('Cwhale'),
-                subtitle: Text('版本 1.0.0'),
+                subtitle: Text('版本 $appVersion · 基准版'),
               ),
               ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16),
