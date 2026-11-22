@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [switch]$UseCurrentVersion
+    [switch]$UseCurrentVersion,
+    [string]$AuthBaseUrl = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -27,6 +28,18 @@ if (-not $UseCurrentVersion) {
 }
 $versionName = "$major.$minor.$patch"
 $versionValue = "$versionName+$buildNumber"
+
+if (-not [string]::IsNullOrWhiteSpace($AuthBaseUrl)) {
+    $parsedAuthUrl = $null
+    if (-not [System.Uri]::TryCreate($AuthBaseUrl.Trim(), [System.UriKind]::Absolute, [ref]$parsedAuthUrl) -or
+        $parsedAuthUrl.Scheme -ne 'https' -or
+        [string]::IsNullOrWhiteSpace($parsedAuthUrl.Host) -or
+        -not [string]::IsNullOrEmpty($parsedAuthUrl.UserInfo) -or
+        -not [string]::IsNullOrEmpty($parsedAuthUrl.Query) -or
+        -not [string]::IsNullOrEmpty($parsedAuthUrl.Fragment)) {
+        throw 'AuthBaseUrl 必须是有效且不含凭据、查询参数或片段的 HTTPS 地址。'
+    }
+}
 
 $localPropertiesPath = Join-Path $projectRoot 'android/local.properties'
 $localProperties = @{}
@@ -83,7 +96,21 @@ try {
         [System.IO.File]::WriteAllText($versionSourcePath, $versionSourceUpdated, $pubspecUtf8)
     }
 
-    & $flutterExe build apk --release --no-pub --build-name $versionName --build-number $buildNumber "--dart-define=APP_VERSION=$versionName"
+    $buildArguments = @(
+        'build',
+        'apk',
+        '--release',
+        '--no-pub',
+        '--build-name',
+        $versionName,
+        '--build-number',
+        $buildNumber.ToString(),
+        "--dart-define=APP_VERSION=$versionName"
+    )
+    if (-not [string]::IsNullOrWhiteSpace($AuthBaseUrl)) {
+        $buildArguments += "--dart-define=CWHale_AUTH_BASE_URL=$($AuthBaseUrl.Trim())"
+    }
+    & $flutterExe @buildArguments
     if ($LASTEXITCODE -ne 0) {
         throw "Flutter release 构建失败，退出码：$LASTEXITCODE"
     }

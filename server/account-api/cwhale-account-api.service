@@ -1,0 +1,26 @@
+[Unit]
+Description=Cwhale account authentication API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cwhale-account
+Group=cwhale-account
+WorkingDirectory=/opt/cwhale-account-api/current
+EnvironmentFile=/etc/cwhale-account-api.env
+ExecStart=/opt/cwhale-account-api/current/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8810 --workers 1 --no-access-log
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/var/lib/cwhale-account
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,6 @@
 # Cwhale 邮箱账号流程与服务端接口方案
 
-状态：客户端流程和界面已接入；账号服务器尚未配置。未配置时提交表单会明确提示服务未接入，不会伪造注册或登录成功。
+状态：邮箱账号客户端与 API 已部署。`/v1/auth/` 通过现有 HTTPS/Nginx 转发到独立 systemd 服务；验证码发信使用 163 SMTP。服务端只处理账号认证数据，不提供聊天内容接口。Android 正式包通过 `tool/package_android.ps1 -AuthBaseUrl <账号服务 HTTPS 地址>` 构建。
 
 ## 数据边界
 
@@ -8,7 +8,7 @@
 - 明文密码只在用户提交时通过 HTTPS 发给账号服务器，不写入本机存储、日志、聊天记录或模型 API。
 - 聊天、摘要、窗口记忆、全局记忆、模型 API Key、生成文件都继续保存在本机；登录不会上传或同步这些数据。
 - 客户端只把轮换后的 refresh token 存在系统安全存储；access token 只驻留内存。退出登录会请求服务器撤销 refresh token，并清除本机 refresh token。
-- 账号服务器地址通过 `--dart-define=CWHale_AUTH_BASE_URL=https://auth.example.com` 配置。客户端只接受 HTTPS。
+- 账号服务器地址通过 `--dart-define=CWHale_AUTH_BASE_URL=<账号服务 HTTPS 地址>` 配置。客户端只接受 HTTPS。
 
 ## 用户流程
 
@@ -72,4 +72,4 @@ flowchart TD
 
 ## 当前实现范围
 
-设置页包含邮箱登录、注册、邮箱验证码、忘记密码、重置密码和退出登录界面；服务未配置时显示明确状态，所有提交均会提示尚未接入。将来用户提供服务器 HTTPS 地址后，用上述契约实现服务端即可联通，不需要 Cwhale API 代理。
+设置页包含邮箱登录、注册、邮箱验证码、忘记密码、重置密码和退出登录界面；未配置账号端点的构建会显示未接入状态。API 服务端实现位于 `server/account-api/`，使用 SQLite、Argon2id、一次性邮件验证码与 refresh token 轮换；生产服务只接收账号认证数据，不提供聊天内容接口。Ubuntu/systemd/Nginx 部署步骤见 `server/account-api/README.md`。

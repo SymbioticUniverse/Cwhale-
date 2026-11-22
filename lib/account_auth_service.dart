@@ -251,7 +251,7 @@ class AccountAuthService extends ChangeNotifier {
             },
             body: jsonEncode(body),
           )
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 30));
       Map<String, dynamic> data = <String, dynamic>{};
       try {
         final decoded = jsonDecode(utf8.decode(response.bodyBytes));
