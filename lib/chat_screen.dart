@@ -3508,28 +3508,63 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       var sawOutputTokens = false;
       var sawTotalTokens = false;
       var completeUsage = true;
+      var didAutoReconnect = false;
       var preparedTurn = plan.directTurn;
+
+      void appendModelDelta(String delta) {
+        reply.add(delta);
+        final run = _generationRuns[assistantMessage.id];
+        run
+          ?..lastDeltaAt = DateTime.now()
+          ..receivedCharacters = reply.length;
+        if (reply.length - checkpointQueuedLength >= 4096) {
+          queueAssistantCheckpoint();
+        }
+        scheduleAssistantCheckpoint();
+      }
+
+      Future<ModelTurn> requestTurnWithRecovery() async {
+        try {
+          return await _client.streamReply(
+            settings: requestSettings,
+            messages: prompt,
+            tools: availableTools,
+            deepThinking: useDeepThinking,
+            thinkingMode: thinkingLevel,
+            onDelta: appendModelDelta,
+          );
+        } catch (error) {
+          final errorText = error.toString();
+          final recoverable = RegExp(
+            r'(clientconnection closed|connection closed|socketexception|connection reset|connection aborted|broken pipe|network is unreachable|failed host lookup|timed out)',
+            caseSensitive: false,
+          ).hasMatch(errorText);
+          if (!recoverable) rethrow;
+
+          didAutoReconnect = true;
+          _setThreadActivity(activeThread.id, '连接短暂中断，正在自动续接');
+          final partialAnswer = reply.text;
+          if (partialAnswer.isNotEmpty) {
+            prompt
+              ..add({'role': 'assistant', 'content': partialAnswer})
+              ..add({
+                'role': 'user',
+                'content': '请从上一条回复最后一句之后继续，不要重复已完成的内容，也不要提及连接中断。',
+              });
+          }
+          return _client.streamReply(
+            settings: requestSettings,
+            messages: prompt,
+            tools: availableTools,
+            deepThinking: useDeepThinking,
+            thinkingMode: thinkingLevel,
+            onDelta: appendModelDelta,
+          );
+        }
+      }
+
       while (true) {
-        final turn =
-            preparedTurn ??
-            await _client.streamReply(
-              settings: requestSettings,
-              messages: prompt,
-              tools: availableTools,
-              deepThinking: useDeepThinking,
-              thinkingMode: thinkingLevel,
-              onDelta: (delta) {
-                reply.add(delta);
-                final run = _generationRuns[assistantMessage.id];
-                run
-                  ?..lastDeltaAt = DateTime.now()
-                  ..receivedCharacters = reply.length;
-                if (reply.length - checkpointQueuedLength >= 4096) {
-                  queueAssistantCheckpoint();
-                }
-                scheduleAssistantCheckpoint();
-              },
-            );
+        final turn = preparedTurn ?? await requestTurnWithRecovery();
         preparedTurn = null;
         reply.flush();
         if (turn.inputTokens != null ||
@@ -3677,7 +3712,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           : null;
       assistantMessage.usageStatus = !sawUsage
           ? 'unavailable'
-          : completeUsage
+          : completeUsage && !didAutoReconnect
           ? 'actual'
           : 'partial';
       processingTime.stop();
@@ -3752,13 +3787,29 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       queueAssistantCheckpoint(force: true);
       await checkpointWrites;
       final errorText = error.toString().replaceFirst('Exception: ', '');
-      final backgroundHint =
-          RegExp(
-            r'(clientconnection closed|connection closed while receiving data)',
-            caseSensitive: false,
-          ).hasMatch(errorText)
-          ? ' 若它只在熄屏或切换应用后发生，请到“设置 → 后台运行保障”允许忽略电池优化；部分品牌手机还需把 Cwhale 的电池策略设为“不受限制”。'
-          : '';
+      final isConnectionClosed = RegExp(
+        r'(clientconnection closed|connection closed while receiving data)',
+        caseSensitive: false,
+      ).hasMatch(errorText);
+      final isBackgroundServiceStopped = RegExp(
+        r'Android 已停止后台生成任务',
+        caseSensitive: false,
+      ).hasMatch(errorText);
+      final needsBackgroundDiagnostics =
+          isConnectionClosed || isBackgroundServiceStopped;
+      final serviceRunningAtFailure =
+          Platform.isAndroid && needsBackgroundDiagnostics
+          ? await GenerationProtection.isServiceRunning()
+          : null;
+      final backgroundHint = !needsBackgroundDiagnostics
+          ? ''
+          : !Platform.isAndroid
+          ? ''
+          : !backgroundProtectionAcquired
+          ? ' 本轮未能启动 Android 后台保护，切换应用时可能被系统暂停；请在“设置 → 后台运行保障”允许后台运行。'
+          : serviceRunningAtFailure == false
+          ? ' 检测到 Android 后台生成服务已停止；请允许忽略电池优化，并将 Cwhale 电池策略设为“不受限制”。'
+          : ' Android 后台生成服务仍在运行，但 API 服务或网络关闭了响应流。应用已尝试自动续接；请检查 API 服务端/代理的流式连接时限或当前网络。';
       assistantMessage
         ..generationStatus = assistantMessage.content.isEmpty
             ? 'failed'
@@ -3789,7 +3840,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         'request_$generationOutcome',
         requestId: assistantMessage.id,
         threadId: activeThread.id,
-        extra: {'errorType': error.runtimeType.toString()},
+        extra: {
+          'errorType': error.runtimeType.toString(),
+          'elapsedMs': processingTime.elapsedMilliseconds,
+          'backgroundProtectionAcquired': backgroundProtectionAcquired,
+          if (serviceRunningAtFailure != null)
+            'foregroundServiceRunningAtFailure': serviceRunningAtFailure,
+        },
       );
       _showMessage('$errorText$backgroundHint');
     } finally {

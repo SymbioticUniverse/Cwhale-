@@ -54,7 +54,9 @@ class GenerationProtection {
         eventAction: ForegroundTaskEventAction.nothing(),
         allowWakeLock: true,
         allowWifiLock: true,
-        allowAutoRestart: false,
+        // Keep the task service eligible for recovery if Android/OEM policy
+        // kills its process while the UI task is in the background.
+        allowAutoRestart: true,
         stopWithTask: false,
       ),
     );
@@ -70,6 +72,15 @@ class GenerationProtection {
           false;
     } catch (_) {
       return false;
+    }
+  }
+
+  static Future<bool> isServiceRunning() async {
+    if (!Platform.isAndroid) return true;
+    try {
+      return await FlutterForegroundTask.isRunningService;
+    } catch (_) {
+      return _serviceStarted;
     }
   }
 
