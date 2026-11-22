@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,6 +12,7 @@ import 'story_simulator_memory.dart';
 
 class LocalStore {
   static Future<void> _threadIndexWriteQueue = Future<void>.value();
+  static Future<void> _kiloRequestWriteQueue = Future<void>.value();
   static const messageChunkSize = 100;
   static const _largeChunkSize = 32 * 1024;
   static const _secure = FlutterSecureStorage(
@@ -26,6 +28,9 @@ class LocalStore {
   );
   static const _settingsKey = 'suiwen.model-settings.v1';
   static const _modelDataConsentsKey = 'suiwen.model-data-consents.v1';
+  static const _kiloRequestTimesKey = 'cwhale.kilo.request-times.v1';
+  static const _freeModelQuotaExhaustedAtKey =
+      'cwhale.free-model.quota-exhausted-at.v1';
   static const _onboardingCompleteKey = 'cwhale.onboarding.complete.v1';
   static const _onboardingStartedKey = 'cwhale.onboarding.started.v1';
 
@@ -993,6 +998,72 @@ class LocalStore {
 
   Future<void> revokeModelDataConsents() =>
       _secure.delete(key: _modelDataConsentsKey);
+
+  /// Returns the timestamps of this installation's Kilo requests from the
+  /// trailing hour. This is only a local estimate; Kilo limits by public IP.
+  Future<List<DateTime>> loadKiloModelRequestTimes() async {
+    final saved = await _secure.read(key: _kiloRequestTimesKey);
+    if (saved == null || saved.isEmpty) return [];
+    try {
+      final decoded = jsonDecode(saved);
+      if (decoded is! List) return [];
+      final cutoff = DateTime.now().toUtc().subtract(const Duration(hours: 1));
+      return decoded
+          .whereType<String>()
+          .map(DateTime.tryParse)
+          .whereType<DateTime>()
+          .map((time) => time.toUtc())
+          .where((time) => time.isAfter(cutoff))
+          .toList()
+        ..sort();
+    } on FormatException {
+      return [];
+    }
+  }
+
+  Future<int> recordKiloModelRequest() {
+    final completer = Completer<int>();
+    _kiloRequestWriteQueue = _kiloRequestWriteQueue.then((_) async {
+      try {
+        final now = DateTime.now().toUtc();
+        final cutoff = now.subtract(const Duration(hours: 1));
+        final times = await loadKiloModelRequestTimes();
+        times.add(now);
+        times.removeWhere((time) => !time.isAfter(cutoff));
+        times.sort();
+        await _secure.write(
+          key: _kiloRequestTimesKey,
+          value: jsonEncode(
+            times.map((time) => time.toIso8601String()).toList(),
+          ),
+        );
+        completer.complete(times.length);
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  Future<void> markFreeModelQuotaExhausted() => _secure.write(
+    key: _freeModelQuotaExhaustedAtKey,
+    value: DateTime.now().toUtc().toIso8601String(),
+  );
+
+  Future<bool> isFreeModelQuotaExhausted() async {
+    final saved = await _secure.read(key: _freeModelQuotaExhaustedAtKey);
+    final exhaustedAt = saved == null ? null : DateTime.tryParse(saved);
+    if (exhaustedAt == null) return false;
+    final age = DateTime.now().toUtc().difference(exhaustedAt.toUtc());
+    if (age.isNegative || age >= const Duration(hours: 1)) {
+      await _secure.delete(key: _freeModelQuotaExhaustedAtKey);
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> clearFreeModelQuotaExhausted() =>
+      _secure.delete(key: _freeModelQuotaExhaustedAtKey);
 
   Future<void> deleteThreadData() async {
     final file = await _chatFile();

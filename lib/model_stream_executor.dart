@@ -95,16 +95,19 @@ class ModelStreamExecutor {
     required String apiKey,
     required Map<String, dynamic> body,
     required void Function(String delta) onDelta,
+    http.Client? httpClient,
   }) async {
     final request = http.Request('POST', uri)..followRedirects = false;
     request.headers.addAll({
-      'Authorization': 'Bearer $apiKey',
       'Content-Type': 'application/json',
       'Accept': 'text/event-stream',
     });
+    if (apiKey.trim().isNotEmpty) {
+      request.headers['Authorization'] = 'Bearer ${apiKey.trim()}';
+    }
     request.body = jsonEncode(body);
 
-    final client = http.Client();
+    final client = httpClient ?? http.Client();
     try {
       final response = await client
           .send(request)
@@ -113,7 +116,13 @@ class ModelStreamExecutor {
         final responseBody = await response.stream.bytesToString().timeout(
           const Duration(seconds: 20),
         );
-        throw Exception(_readProviderError(response.statusCode, responseBody));
+        throw Exception(
+          _readProviderError(
+            response.statusCode,
+            responseBody,
+            isKilo: uri.host.toLowerCase() == 'ai-gateway.kilo.ai',
+          ),
+        );
       }
 
       final answer = StringBuffer();
@@ -205,7 +214,14 @@ class ModelStreamExecutor {
     }
   }
 
-  static String _readProviderError(int statusCode, String body) {
+  static String _readProviderError(
+    int statusCode,
+    String body, {
+    required bool isKilo,
+  }) {
+    if (isKilo && statusCode == 429) {
+      return 'Cwhale 免费额度已用完，请稍后再试。';
+    }
     var providerDetail = '';
     try {
       final json = jsonDecode(body) as Map<String, dynamic>;

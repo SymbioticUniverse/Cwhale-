@@ -21,7 +21,9 @@ enum _AccountFlow {
 }
 
 class AccountAuthPage extends StatefulWidget {
-  const AccountAuthPage({super.key});
+  const AccountAuthPage({this.returnOnSuccess = false, super.key});
+
+  final bool returnOnSuccess;
 
   @override
   State<AccountAuthPage> createState() => _AccountAuthPageState();
@@ -70,6 +72,7 @@ class _AccountAuthPageState extends State<AccountAuthPage> {
           _user = user;
           _flow = _AccountFlow.account;
         });
+        if (widget.returnOnSuccess) _returnAfterAuth();
       }
     } on AccountAuthException catch (error) {
       if (mounted) _showMessage(error.message);
@@ -118,6 +121,9 @@ class _AccountAuthPageState extends State<AccountAuthPage> {
         rethrow;
       }
     });
+    if (_service.currentUser != null && widget.returnOnSuccess) {
+      _returnAfterAuth();
+    }
   }
 
   Future<void> _register() async {
@@ -164,6 +170,9 @@ class _AccountAuthPageState extends State<AccountAuthPage> {
         _flow = _AccountFlow.account;
       });
     });
+    if (_service.currentUser != null && widget.returnOnSuccess) {
+      _returnAfterAuth();
+    }
   }
 
   Future<void> _requestPasswordReset() async {
@@ -278,6 +287,14 @@ class _AccountAuthPageState extends State<AccountAuthPage> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _returnAfterAuth() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop(true);
+      }
+    });
   }
 
   void _back() {

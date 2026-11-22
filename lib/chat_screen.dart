@@ -22,6 +22,7 @@ import 'document_processor.dart';
 import 'generation_protection.dart';
 import 'github_update_service.dart';
 import 'humanizer_skill.dart';
+import 'kilo_gateway.dart';
 import 'local_store.dart';
 import 'story_simulator.dart';
 import 'story_simulator_memory.dart';
@@ -1978,8 +1979,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         turn.text,
         metadata: {
           'apiProfileId': profile.id,
-          'providerName': profile.providerName,
-          'modelName': profile.model,
+          'providerName': profile.displayProviderName,
+          'modelName': profile.displayModelName,
           if (turn.inputTokens != null) 'inputTokens': turn.inputTokens,
           if (turn.outputTokens != null) 'outputTokens': turn.outputTokens,
           if (turn.totalTokens != null ||
@@ -2690,10 +2691,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         : _latestUserQuery(thread);
     final includeConversationContext =
         thread.storySimulatorEnabled || _likelyNeedsConversationContext(query);
+    final isKiloProfile = _settings
+        .profileFor(thread.apiProfileId)
+        .isBuiltInKilo;
     final memories = _memoryRouter.renderForPrompt(
       _memoryRouter.recall(
         query: query,
-        globalRecords: _importantMemories,
+        globalRecords: isKiloProfile
+            ? const <ImportantMemoryRecord>[]
+            : _importantMemories,
         windowRecords: thread.windowMemories
             .where((record) => !record.key.startsWith('window-message:'))
             .toList(),
@@ -2823,6 +2829,54 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           injectLocalTimestamp: _settings.injectLocalTimestamp,
         );
     final profileForSend = _settings.profileFor(originThread.apiProfileId);
+    if (profileForSend.isBuiltInKilo) {
+      if (!await _authenticateForCwhaleFreeModel()) return;
+      if (!mounted || _active?.id != initialThread?.id) return;
+      if (!profileForSend.supportsImages &&
+          pendingAttachments.any((item) => item.imageDataBase64 != null)) {
+        _showMessage('Cwhale 免费模型不支持图片识别；图片和草稿仍保留，请切换支持图片的 API 配置后发送。');
+        return;
+      }
+      try {
+        await KiloGateway.requireFreeAutoRouter();
+      } catch (error) {
+        final message = error.toString();
+        if (message.contains('请重新选择其他 API 配置')) {
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(message),
+                action: SnackBarAction(
+                  label: '切换 API',
+                  onPressed: () {
+                    _openProfilePicker();
+                  },
+                ),
+              ),
+            );
+        } else {
+          _showMessage(message);
+        }
+        return;
+      }
+      final consented = KiloGateway.hasDataConsent(
+        await _store.loadModelDataConsents(),
+      );
+      if (!consented) {
+        final agreed = await _confirmCwhaleFreeModelUse(switching: false);
+        if (agreed != true) return;
+        try {
+          final consents = KiloGateway.grantDataConsent(
+            await _store.loadModelDataConsents(),
+          );
+          await _store.saveModelDataConsents(consents);
+        } catch (error) {
+          _showMessage('授权状态保存失败，本条消息未发送：$error');
+          return;
+        }
+      }
+    }
     final deepThinkingForSend =
         profileForSend.supportsThinkingToggle &&
         (originThread.deepThinkingEnabled ?? false);
@@ -2866,6 +2920,30 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<bool?> _confirmCwhaleFreeModelUse({required bool switching}) =>
+      showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(switching ? '切换到 Cwhale 免费模型？' : '使用 Cwhale 免费模型？'),
+          content: const Text(
+            '你的消息和回答所需的对话上下文会发送给免费模型服务商处理。'
+            '服务商可能按其规则处理或保留内容。',
+            style: TextStyle(height: 1.5),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(switching ? '同意并切换' : '同意并发送'),
+            ),
+          ],
+        ),
+      );
+
   Future<void> _sendPrepared({
     required String text,
     required List<PickedOfficeFile> attachments,
@@ -2890,12 +2968,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     var thread = originThread;
     var selectedProfileId = thread.apiProfileId;
     var requestSettings = _settings.forProfile(selectedProfileId);
-    if (requestSettings.apiKey.trim().isEmpty) {
+    if (!requestSettings.isKiloAnonymous &&
+        requestSettings.apiKey.trim().isEmpty) {
       await _openSettings();
       if (!mounted) return;
       selectedProfileId = thread.apiProfileId;
       requestSettings = _settings.forProfile(selectedProfileId);
-      if (requestSettings.apiKey.trim().isEmpty) return;
+      if (!requestSettings.isKiloAnonymous &&
+          requestSettings.apiKey.trim().isEmpty) {
+        return;
+      }
       processingTime.reset();
     }
 
@@ -3269,8 +3351,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       role: 'assistant',
       content: '',
       apiProfileId: profileSnapshot.id,
-      providerName: profileSnapshot.providerName,
-      modelName: profileSnapshot.model,
+      providerName: profileSnapshot.displayProviderName,
+      modelName: profileSnapshot.displayModelName,
       thinkingStatus: useDeepThinking ? '思考中' : '',
       generationStatus: 'streaming',
     );
@@ -3848,7 +3930,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             'foregroundServiceRunningAtFailure': serviceRunningAtFailure,
         },
       );
-      _showMessage('$errorText$backgroundHint');
+      if (profileSnapshot.isBuiltInKilo && errorText.contains('免费服务暂时限流')) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: const Text('免费服务暂时限流，请稍后重试。'),
+              action: SnackBarAction(
+                label: '切换 API',
+                onPressed: () {
+                  _openProfilePicker();
+                },
+              ),
+            ),
+          );
+      } else {
+        _showMessage('$errorText$backgroundHint');
+      }
     } finally {
       checkpointTimer?.cancel();
       _finishLiveReply(reply);
@@ -3880,6 +3978,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     required bool includeConversationContext,
     String? humanizerPrompt,
   }) async {
+    final isKiloProfile = _settings
+        .profileFor(thread.apiProfileId)
+        .isBuiltInKilo;
     final messages = <Map<String, dynamic>>[
       {'role': 'system', 'content': _baseAssistantPrompt},
       if (humanizerPrompt != null)
@@ -3964,7 +4065,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         if (documentContext.isNotEmpty) localContext.add(documentContext);
         final matchedMemories = _memoryRouter.recall(
           query: memoryQuery,
-          globalRecords: _importantMemories,
+          globalRecords: isKiloProfile
+              ? const <ImportantMemoryRecord>[]
+              : _importantMemories,
           windowRecords: thread.windowMemories
               .where((record) => !record.key.startsWith('window-message:'))
               .toList(),
@@ -4298,9 +4401,95 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     });
   }
 
+  List<ApiProfile> _chatSwitcherProfiles() {
+    final profiles = List<ApiProfile>.of(_settings.apiProfiles);
+    if (!profiles.any((profile) => profile.isBuiltInKilo)) {
+      profiles.add(kiloAutoApiProfile);
+    }
+    return profiles;
+  }
+
+  Future<bool> _authenticateForCwhaleFreeModel() async {
+    final service = AccountAuthService.instance;
+    if (!service.isConfigured) {
+      _showMessage('Cwhale 免费模型暂未开放使用。');
+      return false;
+    }
+    try {
+      await service.restoreSession();
+    } on AccountAuthException catch (error) {
+      if (error.code != 'UNAUTHORIZED' && error.code != 'TOKEN_REVOKED') {
+        if (mounted) _showMessage('检查 Cwhale 登录状态失败：$error');
+        return false;
+      }
+    } catch (error) {
+      if (mounted) _showMessage('检查 Cwhale 登录状态失败：$error');
+      return false;
+    }
+    if (service.currentUser != null) return true;
+    if (!mounted) return false;
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (context) => const AccountAuthPage(returnOnSuccess: true),
+      ),
+    );
+    return result == true;
+  }
+
   Future<void> _selectApiProfile(String profileId) async {
-    if (_isThreadBusy(_active) || !_settings.hasApiProfile(profileId)) return;
+    if (_isThreadBusy(_active)) return;
     final thread = _active;
+    final currentProfileId =
+        thread?.apiProfileId ?? _settings.defaultApiProfileId;
+    if (currentProfileId == profileId && _settings.hasApiProfile(profileId)) {
+      return;
+    }
+
+    if (profileId == kiloApiProfileId) {
+      final agreed = await _confirmCwhaleFreeModelUse(switching: true);
+      if (agreed != true || !mounted) return;
+
+      if (!await _authenticateForCwhaleFreeModel()) return;
+      if (!mounted || _active?.id != thread?.id) return;
+
+      try {
+        await KiloGateway.requireFreeAutoRouter(force: true);
+      } catch (error) {
+        if (mounted) _showMessage(error.toString());
+        return;
+      }
+
+      if (!_settings.hasApiProfile(profileId)) {
+        final freeProfile = kiloAutoApiProfile.copyWith(
+          contextWindowTokens: KiloGateway.contextWindowTokens,
+        );
+        final updatedSettings = _settings.copyWith(
+          apiProfiles: [..._settings.apiProfiles, freeProfile],
+        );
+        try {
+          await _store.saveSettings(updatedSettings);
+        } catch (error) {
+          if (mounted) _showMessage('保存模型配置失败：$error');
+          return;
+        }
+        if (!mounted || _active?.id != thread?.id) return;
+        setState(() => _settings = updatedSettings);
+      }
+
+      try {
+        final scopes = KiloGateway.grantDataConsent(
+          await _store.loadModelDataConsents(),
+        );
+        await _store.saveModelDataConsents(scopes);
+      } catch (error) {
+        if (mounted) _showMessage('保存授权失败，模型没有切换：$error');
+        return;
+      }
+    } else if (!_settings.hasApiProfile(profileId)) {
+      return;
+    }
+
+    if (!mounted || _active?.id != thread?.id) return;
     if (thread == null) {
       _newChat(apiProfileId: profileId);
       return;
@@ -4319,19 +4508,22 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
     });
     if (thread.messageCount == 0) _scrollToBottom(thread.id);
-    _showMessage('当前对话已切换到 ${profile.name} · ${profile.model}。');
+    _showMessage(
+      '当前对话已切换到 ${profile.displayName} · ${profile.displayModelName}。',
+    );
   }
 
   Future<void> _openProfilePicker() async {
     if (_isThreadBusy(_active) || _settings.apiProfiles.isEmpty) return;
     final selectedId = _active?.apiProfileId ?? _settings.defaultApiProfileId;
+    final profiles = _chatSwitcherProfiles();
     final selected = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       backgroundColor: _surfaceRaised,
       showDragHandle: true,
       builder: (context) => _ApiProfilePicker(
-        profiles: _settings.apiProfiles,
+        profiles: profiles,
         selectedId: selectedId,
         favoriteIds: _settings.favoriteApiProfileIds.toSet(),
         onToggleFavorite: _toggleFavoriteProfile,
@@ -4608,7 +4800,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     title: const Text('自动压缩（本会话）'),
                     subtitle: Text(
                       thread.autoCompressOverride == null
-                          ? '继承 ${profile.name} 档案设置'
+                          ? '继承 ${profile.displayName} 档案设置'
                           : '仅影响本会话',
                     ),
                     onChanged: (value) async {
@@ -4986,7 +5178,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
             Text(
-              '${activeProfile.name} · ${activeProfile.model}',
+              '${activeProfile.displayName} · ${activeProfile.displayModelName}',
               style: TextStyle(
                 color: _muted,
                 fontSize: 11,
@@ -5004,7 +5196,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           PopupMenuButton<String>(
             tooltip: '切换当前对话 API 配置',
             onSelected: _selectApiProfile,
-            itemBuilder: (context) => _settings.apiProfiles
+            itemBuilder: (context) => _chatSwitcherProfiles()
                 .map(
                   (profile) => PopupMenuItem<String>(
                     value: profile.id,
@@ -5017,7 +5209,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         const SizedBox(width: 8),
                         Flexible(
                           child: Text(
-                            '${profile.name} · ${profile.model}',
+                            '${profile.displayName} · ${profile.displayModelName}',
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -5946,7 +6138,13 @@ class _MessageBubble extends StatefulWidget {
 
 class _MessageBubbleState extends State<_MessageBubble> {
   String _replyStats(ChatMessage message) {
-    final name = message.modelName ?? message.providerName;
+    final storedName = message.modelName ?? message.providerName;
+    final isCwhaleFreeModel =
+        message.apiProfileId == kiloApiProfileId ||
+        (storedName != null &&
+            (storedName.toLowerCase().contains('kilo') ||
+                storedName == kiloDisplayModelAlias));
+    final name = isCwhaleFreeModel ? 'Cwhale 免费模型' : storedName;
     final tokens = message.totalTokens;
     final duration = _formatProcessingDuration(message.processingDurationMs);
     return [
@@ -6888,7 +7086,7 @@ class _Composer extends StatelessWidget {
                                   maxWidth: 225,
                                 ),
                                 child: Text(
-                                  '${activeProfile.providerName} · ${activeProfile.model}',
+                                  '${activeProfile.displayProviderName} · ${activeProfile.displayModelName}',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(fontSize: 12),
@@ -7084,14 +7282,14 @@ class _ApiProfilePickerState extends State<_ApiProfilePicker> {
     final matches = widget.profiles.where((profile) {
       if (_favoritesOnly && !_favorites.contains(profile.id)) return false;
       return query.isEmpty ||
-          '${profile.name} ${profile.providerName} ${profile.model}'
+          '${profile.displayName} ${profile.displayProviderName} ${profile.displayModelName}'
               .toLowerCase()
               .contains(query);
     }).toList();
     final groups = <String, List<ApiProfile>>{};
     for (final profile in matches) {
       groups
-          .putIfAbsent(profile.providerName, () => <ApiProfile>[])
+          .putIfAbsent(profile.displayProviderName, () => <ApiProfile>[])
           .add(profile);
     }
     return SafeArea(
@@ -7147,12 +7345,12 @@ class _ApiProfilePickerState extends State<_ApiProfilePicker> {
                                       : _muted,
                                 ),
                                 title: Text(
-                                  profile.name,
+                                  profile.displayName,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 subtitle: Text(
-                                  profile.model,
+                                  profile.displayModelName,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -7217,6 +7415,7 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
+  final LocalStore _privacyStore = LocalStore();
   late List<ApiProfile> _profiles = List.of(widget.settings.apiProfiles);
   late String _defaultProfileId = widget.settings.defaultApiProfileId;
   late final _globalSystemPrompt = TextEditingController(
@@ -7226,6 +7425,62 @@ class _SettingsPageState extends State<SettingsPage> {
   late bool _darkThemeEnabled = widget.settings.useDarkTheme;
   bool _allowPop = false;
   bool _checkingUpdates = false;
+  bool _kiloConsentSaved = false;
+  int _cwhaleFreeUsagePercent = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadKiloConsent();
+    _loadCwhaleFreeUsage();
+  }
+
+  Future<void> _loadCwhaleFreeUsage() async {
+    try {
+      final count = (await _privacyStore.loadKiloModelRequestTimes()).length;
+      final exhausted = await _privacyStore.isFreeModelQuotaExhausted();
+      final percent = exhausted
+          ? 100
+          : (count * 100 / KiloGateway.requestsPerHourPerIp)
+                .round()
+                .clamp(0, 100)
+                .toInt();
+      if (mounted) setState(() => _cwhaleFreeUsagePercent = percent);
+    } catch (_) {
+      if (mounted) setState(() => _cwhaleFreeUsagePercent = 0);
+    }
+  }
+
+  Future<void> _loadKiloConsent() async {
+    try {
+      final saved = KiloGateway.hasDataConsent(
+        await _privacyStore.loadModelDataConsents(),
+      );
+      if (mounted) setState(() => _kiloConsentSaved = saved);
+    } catch (_) {
+      if (mounted) setState(() => _kiloConsentSaved = false);
+    }
+  }
+
+  Future<void> _revokeKiloConsent() async {
+    try {
+      final consents = KiloGateway.revokeDataConsent(
+        await _privacyStore.loadModelDataConsents(),
+      );
+      await _privacyStore.saveModelDataConsents(consents);
+      if (mounted) {
+        setState(() => _kiloConsentSaved = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已撤销 Cwhale 免费模型数据授权；下次使用前需重新同意。')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('撤销授权失败：$error')));
+      }
+    }
+  }
 
   Future<void> _checkForUpdates() async {
     if (_checkingUpdates) return;
@@ -7381,6 +7636,7 @@ class _SettingsPageState extends State<SettingsPage> {
           profiles: _profiles,
           defaultProfileId: _defaultProfileId,
           usageCounts: widget.profileUsageCounts,
+          onRequireKiloLogin: _authenticateForKilo,
         ),
       ),
     );
@@ -7425,6 +7681,35 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  Future<bool> _authenticateForKilo() async {
+    final service = AccountAuthService.instance;
+    if (!service.isConfigured) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cwhale 登录服务尚未配置，暂不能启用免费模型。')),
+        );
+      }
+      return false;
+    }
+    try {
+      await service.restoreSession();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('检查 Cwhale 登录状态失败：$error')));
+      }
+      return false;
+    }
+    if (service.currentUser != null) return true;
+    if (!mounted) return false;
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (context) => const AccountAuthPage(returnOnSuccess: true),
+      ),
+    );
+    return result == true;
+  }
+
   ModelSettings _settingsResult() {
     final selected = _defaultProfile;
     return widget.settings.copyWith(
@@ -7463,8 +7748,9 @@ class _SettingsPageState extends State<SettingsPage> {
         title: const Text('隐私政策与数据说明'),
         content: const SingleChildScrollView(
           child: Text(
-            'Cwhale 不运行自有 API、账号或聊天存储服务器，也不做广告或遥测。邮箱账号流程已就绪，但当前未配置账号服务器，暂不能注册或登录；接入后，邮箱与认证请求会通过 HTTPS 直连用户配置的账号服务器，不上传聊天、记忆、API Key 或文件。聊天记录、记忆、摘要、API 配置和生成文件都保存在本机；API Key 使用本机安全存储加密保存。\n\n'
+            'Cwhale 不运行聊天存储服务器，也不做广告或遥测。邮箱登录仅用于 Cwhale 应用身份；邮箱与认证请求通过 HTTPS 发送到已配置的账号服务，不上传聊天、记忆、API Key 或文件。聊天记录、记忆、摘要、API 配置和生成文件都保存在本机；API Key 使用本机安全存储加密保存。\n\n'
             '发送消息时，手机通过 HTTPS 直接连接当前对话所选的 API 配置地址，使用 OpenAI 兼容 Chat Completions 协议。Cwhale 不接收或转发请求。全局系统提示词作为 system 前缀加入模型、工具后续和摘要压缩请求。\n\n'
+            'Cwhale 免费模型采用自动路由，实际模型上游可能变化。消息及回答所需上下文会发送到免费模型服务商；服务商可能按其规则处理或保留内容。全局重要记忆默认不发送。可在“隐私”设置撤销授权；撤销后普通聊天、工具、摘要与压缩请求都会停止发送，已发出的内容无法撤回。\n\n'
             '只有用户明确开启联网搜索，或明确提出搜索请求时，手机才直连公开网页。搜索词会发送到搜索来源，网页请求会发送到对应网站；搜索结果仅用于本轮模型上下文。天气查询和其他工具也由手机直连对应公开服务。\n\n'
             '自动或手动摘要由当前对话所选档案的模型生成；摘要保存在本机，原始聊天不删除。API Key 通过 Authorization: Bearer 请求头直发配置地址，不写入聊天正文、明文配置文件或安装包。\n\n'
             '用户手动点击“检查更新”时，手机会向 GitHub Releases 查询公开版本信息；下载链接由系统浏览器打开。此过程不发送聊天、记忆、API Key 或文件。安装 APK 仍由用户确认。\n\n'
@@ -7578,9 +7864,9 @@ class _SettingsPageState extends State<SettingsPage> {
               ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                 leading: Icon(Icons.waves_rounded, color: _green),
-                title: const Text('DeepSeek 直连 · API 配置'),
+                title: const Text('模型与 API 配置'),
                 subtitle: Text(
-                  '${profile.providerName} · ${profile.model} · ${_profiles.length} 个档案',
+                  '${profile.displayProviderName} · ${profile.displayModelName} · ${_profiles.length} 个档案',
                   style: TextStyle(color: _muted, fontSize: 11),
                 ),
                 trailing: Icon(Icons.chevron_right_rounded, color: _muted),
@@ -7598,6 +7884,43 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 trailing: Icon(Icons.chevron_right_rounded, color: _muted),
                 onTap: _editGlobalSystemPrompt,
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 13,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.speed_rounded, color: _green),
+                        const SizedBox(width: 16),
+                        const Expanded(
+                          child: Text(
+                            'Cwhale 免费额度',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        Text(
+                          '$_cwhaleFreeUsagePercent% 已用',
+                          style: TextStyle(color: _muted, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(99),
+                      child: LinearProgressIndicator(
+                        value: _cwhaleFreeUsagePercent / 100,
+                        minHeight: 6,
+                        backgroundColor: _line,
+                        color: _green,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ]),
             section('应用', [
@@ -7659,6 +7982,24 @@ class _SettingsPageState extends State<SettingsPage> {
                 subtitle: const Text('删除聊天、窗口记忆和全局重要记忆'),
                 trailing: Icon(Icons.chevron_right_rounded, color: _muted),
                 onTap: widget.onClearChats,
+              ),
+            ]),
+            section('隐私', [
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                leading: Icon(Icons.shield_outlined, color: _green),
+                title: const Text('Cwhale 免费模型数据授权'),
+                subtitle: Text(
+                  _kiloConsentSaved ? '已同意；可撤销，后续请求将停止发送' : '未授权；首次发送前会说明数据范围',
+                  style: TextStyle(color: _muted, fontSize: 11),
+                ),
+                trailing: _kiloConsentSaved
+                    ? TextButton(
+                        onPressed: _revokeKiloConsent,
+                        child: const Text('撤销'),
+                      )
+                    : Icon(Icons.chevron_right_rounded, color: _muted),
+                onTap: null,
               ),
             ]),
             section('关于', [

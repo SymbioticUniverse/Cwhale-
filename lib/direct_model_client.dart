@@ -1,7 +1,10 @@
 import 'dart:io';
 
+import 'account_auth_service.dart';
 import 'chat_models.dart';
 import 'generation_protection.dart';
+import 'kilo_gateway.dart';
+import 'local_store.dart';
 import 'model_stream_executor.dart';
 
 export 'model_stream_executor.dart' show ModelToolCall, ModelTurn;
@@ -24,7 +27,25 @@ class DirectModelClient {
     bool deepThinking = false,
     String thinkingMode = 'default',
   }) async {
-    if (settings.apiKey.trim().isEmpty) {
+    final isKiloRequest =
+        settings.isKiloAnonymous &&
+        settings.baseUrl.trim().replaceFirst(RegExp(r'/+$'), '') ==
+            kiloApiBaseUrl &&
+        settings.model.trim() == kiloDisplayModelAlias;
+    if (settings.isKiloAnonymous && !isKiloRequest) {
+      throw const FormatException('Cwhale 免费模型配置无效，请重新选择 API 配置。');
+    }
+    if (isKiloRequest) {
+      final auth = AccountAuthService.instance;
+      if (!auth.isConfigured || auth.currentUser == null) {
+        throw const CwhaleFreeModelAccountRequiredException();
+      }
+      await KiloGateway.requireFreeAutoRouter();
+      final consents = await LocalStore().loadModelDataConsents();
+      if (!KiloGateway.hasDataConsent(consents)) {
+        throw const KiloDataConsentRequiredException();
+      }
+    } else if (settings.apiKey.trim().isEmpty) {
       throw const FormatException('请先填写模型 API Key。');
     }
     if (settings.model.trim().isEmpty) {
@@ -59,7 +80,7 @@ class DirectModelClient {
     }
 
     final body = <String, dynamic>{
-      'model': settings.model.trim(),
+      'model': isKiloRequest ? kiloGatewayModelId : settings.model.trim(),
       'stream': true,
       'stream_options': {'include_usage': true},
       'messages': outboundMessages,
@@ -78,22 +99,50 @@ class DirectModelClient {
       body['tool_choice'] = 'auto';
     }
 
+    if (isKiloRequest) {
+      // Persist only a local timestamp before dispatch. Kilo's actual quota is
+      // shared by every app behind the same public IP, so this cannot be exact.
+      try {
+        await LocalStore().recordKiloModelRequest();
+      } catch (_) {
+        // A local counter failure must not prevent the user's model request.
+      }
+    }
+
     final backgroundProtected = await GenerationProtection.acquire();
     try {
-      if (Platform.isAndroid && backgroundProtected) {
-        return await GenerationProtection.executeRequest(
-          uri: completionUri(settings.baseUrl).toString(),
-          apiKey: settings.apiKey.trim(),
-          body: body,
-          onDelta: onDelta,
-        );
+      try {
+        final result = Platform.isAndroid && backgroundProtected
+            ? await GenerationProtection.executeRequest(
+                uri: completionUri(settings.baseUrl).toString(),
+                apiKey: isKiloRequest ? '' : settings.apiKey.trim(),
+                body: body,
+                onDelta: onDelta,
+              )
+            : await ModelStreamExecutor.execute(
+                uri: completionUri(settings.baseUrl),
+                apiKey: isKiloRequest ? '' : settings.apiKey.trim(),
+                body: body,
+                onDelta: onDelta,
+              );
+        if (isKiloRequest) {
+          try {
+            await LocalStore().clearFreeModelQuotaExhausted();
+          } catch (_) {
+            // Quota display persistence must not interrupt a valid reply.
+          }
+        }
+        return result;
+      } catch (error) {
+        if (isKiloRequest && error.toString().contains('免费额度已用完')) {
+          try {
+            await LocalStore().markFreeModelQuotaExhausted();
+          } catch (_) {
+            // The next local usage refresh will fall back to recorded calls.
+          }
+        }
+        rethrow;
       }
-      return await ModelStreamExecutor.execute(
-        uri: completionUri(settings.baseUrl),
-        apiKey: settings.apiKey.trim(),
-        body: body,
-        onDelta: onDelta,
-      );
     } finally {
       if (backgroundProtected) await GenerationProtection.release();
     }
@@ -109,4 +158,18 @@ class DirectModelClient {
     return '【用户设备本地时间基准】$localStamp UTC$sign$hoursText:$minutesText '
         '(${now.timeZoneName})。这是本次请求唯一可信的“现在”时间。回答现在、今天、明天、日期、星期或相对时间问题时，必须以此为准；忽略模型服务器时间、旧消息中的时间和任何默认时区。此时间仅适用于当前请求。';
   }
+}
+
+class KiloDataConsentRequiredException implements Exception {
+  const KiloDataConsentRequiredException();
+
+  @override
+  String toString() => '使用 Cwhale 免费模型前需要先确认数据发送说明。';
+}
+
+class CwhaleFreeModelAccountRequiredException implements Exception {
+  const CwhaleFreeModelAccountRequiredException();
+
+  @override
+  String toString() => '请先登录 Cwhale 账号，再使用免费模型。';
 }

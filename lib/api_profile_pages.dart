@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app_theme.dart';
+import 'account_auth_service.dart';
 import 'chat_models.dart';
+import 'kilo_gateway.dart';
 
 Color get _profilePaper => CwhaleTheme.background;
 Color get _profileSurface => CwhaleTheme.surface;
@@ -26,12 +28,14 @@ class ApiProfilesPage extends StatefulWidget {
     required this.profiles,
     required this.defaultProfileId,
     required this.usageCounts,
+    this.onRequireKiloLogin,
     super.key,
   });
 
   final List<ApiProfile> profiles;
   final String defaultProfileId;
   final Map<String, int> usageCounts;
+  final Future<bool> Function()? onRequireKiloLogin;
 
   @override
   State<ApiProfilesPage> createState() => _ApiProfilesPageState();
@@ -41,6 +45,49 @@ class _ApiProfilesPageState extends State<ApiProfilesPage> {
   late List<ApiProfile> _profiles = List.of(widget.profiles);
   late String _defaultProfileId = widget.defaultProfileId;
   bool _allowPop = false;
+  bool _enablingKilo = false;
+
+  bool get _hasKiloProfile => _profiles.any((profile) => profile.isBuiltInKilo);
+
+  Future<void> _enableKilo() async {
+    if (_enablingKilo || _hasKiloProfile) return;
+    final auth = AccountAuthService.instance;
+    if (!auth.isConfigured) {
+      _showMessage('Cwhale 登录服务尚未配置；发布者需在 APK 构建时配置账号服务地址。');
+      return;
+    }
+    if (auth.currentUser == null) {
+      final callback = widget.onRequireKiloLogin;
+      if (callback == null || await callback() != true || !mounted) return;
+    }
+    setState(() => _enablingKilo = true);
+    try {
+      final available = await KiloGateway.refreshCatalog(force: true);
+      if (!mounted) return;
+      if (!available) {
+        _showMessage('Cwhale 免费模型当前暂不可用，请稍后重试。');
+        return;
+      }
+      final profile = kiloAutoApiProfile.copyWith(
+        contextWindowTokens: KiloGateway.contextWindowTokens,
+      );
+      setState(() {
+        _profiles.add(profile);
+        _defaultProfileId = profile.id;
+      });
+      _showMessage('已启用 Cwhale 免费模型；此对话可直接切换使用。');
+    } catch (error) {
+      if (mounted) _showMessage('启用 Cwhale 免费模型失败：${error.toString()}');
+    } finally {
+      if (mounted) setState(() => _enablingKilo = false);
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
 
   ApiProfile _fallbackFor(String removedId) {
     for (final profile in _profiles) {
@@ -81,7 +128,7 @@ class _ApiProfilesPageState extends State<ApiProfilesPage> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('删除 API 配置？'),
         content: Text(
-          '“${profile.name}”将从本机删除。$affected 个使用此配置的对话会切换到“${fallback.name} · ${fallback.model}”；此操作无法撤销。',
+          '“${profile.displayName}”将从本机删除。$affected 个使用此配置的对话会切换到“${fallback.displayName} · ${fallback.displayModelName}”；此操作无法撤销。',
         ),
         actions: [
           TextButton(
@@ -143,6 +190,60 @@ class _ApiProfilesPageState extends State<ApiProfilesPage> {
               style: TextStyle(color: _profileMuted, height: 1.45),
             ),
           ),
+          if (!_hasKiloProfile)
+            Card(
+              color: _profileSurface,
+              margin: const EdgeInsets.only(bottom: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+                side: BorderSide(color: _profileLine),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.bolt_rounded, color: _profileAccent),
+                        const SizedBox(width: 9),
+                        Text(
+                          'Cwhale 免费模型',
+                          style: TextStyle(
+                            color: _profileInk,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '无需填写 API Key · 自动路由 · 首次启用需登录 Cwhale。',
+                      style: TextStyle(color: _profileMuted, height: 1.45),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _enablingKilo ? null : _enableKilo,
+                        icon: _enablingKilo
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.add_rounded),
+                        label: Text(
+                          _enablingKilo ? '正在验证免费目录…' : '启用 Cwhale 免费模型',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           for (final profile in _profiles)
             Card(
               color: _profileSurface,
@@ -163,14 +264,14 @@ class _ApiProfilesPageState extends State<ApiProfilesPage> {
                       }
                     },
                     title: Text(
-                      profile.name,
+                      profile.displayName,
                       style: TextStyle(
                         color: _profileInk,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     subtitle: Text(
-                      '${profile.providerName} · ${profile.model}\n'
+                      '${profile.displayProviderName} · ${profile.displayModelName}\n'
                       '${formatContextWindow(profile.contextWindowTokens)} · '
                       '自动压缩${profile.autoCompressContext ? ' ${profile.autoCompressAtPercent}%' : '关闭'}',
                       style: TextStyle(
@@ -184,11 +285,12 @@ class _ApiProfilesPageState extends State<ApiProfilesPage> {
                   Row(
                     children: [
                       const Spacer(),
-                      TextButton.icon(
-                        onPressed: () => _editProfile(profile),
-                        icon: const Icon(Icons.edit_outlined, size: 17),
-                        label: const Text('编辑'),
-                      ),
+                      if (!profile.isBuiltInKilo)
+                        TextButton.icon(
+                          onPressed: () => _editProfile(profile),
+                          icon: const Icon(Icons.edit_outlined, size: 17),
+                          label: const Text('编辑'),
+                        ),
                       if (profile.id != deepSeekDefaultProfileId)
                         TextButton.icon(
                           onPressed: () => _deleteProfile(profile),

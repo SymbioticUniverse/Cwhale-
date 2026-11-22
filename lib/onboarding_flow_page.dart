@@ -701,93 +701,102 @@ class _OnboardingFlowPageState extends State<OnboardingFlowPage> {
     ),
   );
 
-  Widget _buildCreditsPage(Color ink, Color muted, Color accent, Color line) =>
-      _pageBody(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _sectionHeading(
-              eyebrow: '第五步',
-              title: '开源致谢',
-              intro: 'Cwhale 建立在开源社区的成果之上。感谢项目作者、维护者与所有贡献者。',
-              ink: ink,
-              muted: muted,
-              accent: accent,
-            ),
-            const SizedBox(height: 20),
-            ...const [
-              ('Flutter', 'Google / Flutter Authors', 'BSD-3-Clause'),
-              ('archive', 'Brendan Duncan', 'MIT'),
-              ('file_picker', 'Miguel Ruivo 等', 'MIT'),
-              ('flutter_foreground_task', 'Dev-hwang', 'MIT'),
-              ('flutter_secure_storage', 'German Saprykin 等', 'BSD-3-Clause'),
-              ('html、http、file', 'Dart Authors', 'BSD-3-Clause'),
-              ('open_xml', 'Rody Davis', 'Apache-2.0'),
-              ('path_provider', 'Flutter Authors', 'BSD-3-Clause'),
-              ('trafilatura', 'Kamran X', 'Apache-2.0'),
-              ('humanizer', 'Blader', 'MIT'),
-            ].map(
-              (item) => Container(
-                padding: const EdgeInsets.symmetric(vertical: 11),
-                decoration: BoxDecoration(
-                  border: Border(bottom: BorderSide(color: line)),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 4,
-                      child: Text(
-                        item.$1,
-                        style: TextStyle(
-                          color: ink,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      flex: 5,
-                      child: Text(
-                        item.$2,
-                        style: TextStyle(
-                          color: muted,
-                          fontSize: 12,
-                          height: 1.4,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      item.$3,
-                      style: TextStyle(
-                        color: accent,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 22),
-            _notice(
-              icon: Icons.code_rounded,
-              title: 'Cwhale · MIT License',
-              body: 'https://github.com/SymbioticUniverse/Cwhale-',
-              ink: ink,
-              muted: muted,
-              accent: accent,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              '感谢所有开源项目作者与社区维护者。',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: muted, fontSize: 12),
-            ),
-          ],
+  Widget _buildCreditsPage(
+    Color ink,
+    Color muted,
+    Color accent,
+    Color line,
+  ) => _pageBody(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _sectionHeading(
+          eyebrow: '第五步',
+          title: '开源致谢',
+          intro: 'Cwhale 建立在开源社区的成果之上。感谢项目作者、维护者与所有贡献者。',
+          ink: ink,
+          muted: muted,
+          accent: accent,
         ),
-      );
+        const SizedBox(height: 20),
+        ...const [
+          ('Flutter', 'Google / Flutter Authors', 'BSD-3-Clause'),
+          ('archive', 'Brendan Duncan', 'MIT'),
+          ('file_picker', 'Miguel Ruivo 等', 'MIT'),
+          ('flutter_foreground_task', 'Dev-hwang', 'MIT'),
+          ('flutter_secure_storage', 'German Saprykin 等', 'BSD-3-Clause'),
+          ('html、http、file', 'Dart Authors', 'BSD-3-Clause'),
+          ('open_xml', 'Rody Davis', 'Apache-2.0'),
+          ('path_provider', 'Flutter Authors', 'BSD-3-Clause'),
+          ('trafilatura', 'Kamran X', 'Apache-2.0'),
+          ('humanizer', 'Blader', 'MIT'),
+        ].map(
+          (item) => Container(
+            padding: const EdgeInsets.symmetric(vertical: 11),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: line)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 4,
+                  child: Text(
+                    item.$1,
+                    style: TextStyle(
+                      color: ink,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 5,
+                  child: Text(
+                    item.$2,
+                    style: TextStyle(color: muted, fontSize: 12, height: 1.4),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  item.$3,
+                  style: TextStyle(
+                    color: accent,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        _notice(
+          icon: Icons.cloud_outlined,
+          title: 'Kilo AI Gateway · Kilo-Org · 服务致谢',
+          body: '感谢 Kilo-Org 提供免费模型网关服务。Cwhale 通过其在线 API 接入自动路由；网关源码未打包进本应用。',
+          ink: ink,
+          muted: muted,
+          accent: accent,
+        ),
+        const SizedBox(height: 22),
+        _notice(
+          icon: Icons.code_rounded,
+          title: 'Cwhale · MIT License',
+          body: 'https://github.com/SymbioticUniverse/Cwhale-',
+          ink: ink,
+          muted: muted,
+          accent: accent,
+        ),
+        const SizedBox(height: 10),
+        Text(
+          '感谢所有开源项目作者与社区维护者。',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: muted, fontSize: 12),
+        ),
+      ],
+    ),
+  );
 
   Widget _featureLine({
     required IconData icon,

@@ -5,6 +5,11 @@ import 'story_simulator_memory.dart';
 const deepSeekApiBaseUrl = 'https://api.deepseek.com';
 const deepSeekFlashModel = 'deepseek-flash';
 const deepSeekDefaultProfileId = 'deepseek-default';
+const kiloApiBaseUrl = 'https://ai-gateway.kilo.ai/api/v1';
+const kiloApiProfileId = 'cwhale-kilo-auto-profile';
+const kiloDisplayModelAlias = 'cwhale-kilo-auto';
+const kiloGatewayModelId = 'kilo-auto/free';
+const kiloModelDataConsentScope = 'kilo-gateway-auto-v1';
 const contextWindowChoices = <int>[
   16000,
   32000,
@@ -596,6 +601,15 @@ class ApiProfile {
   final bool supportsImages;
   final bool supportsFiles;
 
+  bool get isBuiltInKilo =>
+      id == kiloApiProfileId &&
+      Uri.tryParse(baseUrl)?.host.toLowerCase() == 'ai-gateway.kilo.ai' &&
+      model == kiloDisplayModelAlias;
+
+  String get displayName => isBuiltInKilo ? 'Cwhale' : name;
+  String get displayProviderName => isBuiltInKilo ? 'Cwhale' : providerName;
+  String get displayModelName => isBuiltInKilo ? '免费模型' : model;
+
   ApiProfile copyWith({
     String? name,
     String? providerName,
@@ -691,6 +705,20 @@ const _defaultDeepSeekProfile = ApiProfile(
   supportsThinkingToggle: true,
 );
 
+const kiloAutoApiProfile = ApiProfile(
+  id: kiloApiProfileId,
+  name: 'Cwhale',
+  providerName: 'Cwhale',
+  baseUrl: kiloApiBaseUrl,
+  model: kiloDisplayModelAlias,
+  apiKey: '',
+  contextWindowTokens: 256000,
+  supportsThinkingToggle: false,
+  supportsThinkingLevels: false,
+  supportsImages: false,
+  supportsFiles: false,
+);
+
 class ModelSettings {
   const ModelSettings({
     this.baseUrl = deepSeekApiBaseUrl,
@@ -708,6 +736,7 @@ class ModelSettings {
     this.favoriteApiProfileIds = const <String>[],
     this.supportsThinkingToggle = false,
     this.supportsThinkingLevels = false,
+    this.isKiloAnonymous = false,
   });
 
   final String baseUrl;
@@ -725,6 +754,7 @@ class ModelSettings {
   final List<String> favoriteApiProfileIds;
   final bool supportsThinkingToggle;
   final bool supportsThinkingLevels;
+  final bool isKiloAnonymous;
 
   bool hasApiProfile(String id) =>
       apiProfiles.any((profile) => profile.id == id);
@@ -750,6 +780,7 @@ class ModelSettings {
       autoCompressAtPercent: profile.autoCompressAtPercent,
       supportsThinkingToggle: profile.supportsThinkingToggle,
       supportsThinkingLevels: profile.supportsThinkingLevels,
+      isKiloAnonymous: profile.isBuiltInKilo,
     );
   }
 
@@ -769,6 +800,7 @@ class ModelSettings {
     List<String>? favoriteApiProfileIds,
     bool? supportsThinkingToggle,
     bool? supportsThinkingLevels,
+    bool? isKiloAnonymous,
   }) => ModelSettings(
     baseUrl: baseUrl ?? this.baseUrl,
     model: model ?? this.model,
@@ -787,6 +819,7 @@ class ModelSettings {
         supportsThinkingToggle ?? this.supportsThinkingToggle,
     supportsThinkingLevels:
         supportsThinkingLevels ?? this.supportsThinkingLevels,
+    isKiloAnonymous: isKiloAnonymous ?? this.isKiloAnonymous,
   );
 
   Map<String, dynamic> toJson() => {
@@ -805,6 +838,7 @@ class ModelSettings {
     'favoriteApiProfileIds': favoriteApiProfileIds,
     'supportsThinkingToggle': supportsThinkingToggle,
     'supportsThinkingLevels': supportsThinkingLevels,
+    'isKiloAnonymous': isKiloAnonymous,
   };
 
   factory ModelSettings.fromJson(Map<String, dynamic> json) {
@@ -884,6 +918,7 @@ class ModelSettings {
               .toList(),
       supportsThinkingToggle: json['supportsThinkingToggle'] as bool? ?? false,
       supportsThinkingLevels: json['supportsThinkingLevels'] as bool? ?? false,
+      isKiloAnonymous: json['isKiloAnonymous'] as bool? ?? false,
     );
   }
 }
