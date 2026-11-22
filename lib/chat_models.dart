@@ -581,10 +581,10 @@ class ApiProfile {
     this.contextWindowTokens = 1000000,
     this.autoCompressContext = true,
     this.autoCompressAtPercent = 80,
-    this.supportsThinkingToggle = false,
-    this.supportsThinkingLevels = false,
-    this.supportsImages = false,
-    this.supportsFiles = false,
+    this.supportsThinkingToggle = true,
+    this.supportsThinkingLevels = true,
+    this.supportsImages = true,
+    this.supportsFiles = true,
   });
 
   final String id;
@@ -685,12 +685,10 @@ class ApiProfile {
       autoCompressAtPercent: const [60, 70, 80, 90].contains(threshold)
           ? threshold
           : 80,
-      supportsThinkingToggle:
-          json['supportsThinkingToggle'] as bool? ??
-          ((json['id'] as String?) == deepSeekDefaultProfileId),
-      supportsThinkingLevels: json['supportsThinkingLevels'] as bool? ?? false,
-      supportsImages: json['supportsImages'] as bool? ?? false,
-      supportsFiles: json['supportsFiles'] as bool? ?? false,
+      supportsThinkingToggle: json['supportsThinkingToggle'] as bool? ?? true,
+      supportsThinkingLevels: json['supportsThinkingLevels'] as bool? ?? true,
+      supportsImages: json['supportsImages'] as bool? ?? true,
+      supportsFiles: json['supportsFiles'] as bool? ?? true,
     );
   }
 }
@@ -703,6 +701,9 @@ const _defaultDeepSeekProfile = ApiProfile(
   model: deepSeekFlashModel,
   apiKey: '',
   supportsThinkingToggle: true,
+  supportsThinkingLevels: true,
+  supportsImages: true,
+  supportsFiles: true,
 );
 
 const kiloAutoApiProfile = ApiProfile(
@@ -834,6 +835,7 @@ class ModelSettings {
     'autoCompressContext': autoCompressContext,
     'autoCompressAtPercent': autoCompressAtPercent,
     'apiProfiles': apiProfiles.map((profile) => profile.toJson()).toList(),
+    'apiProfileCapabilityDefaultsVersion': 1,
     'defaultApiProfileId': defaultApiProfileId,
     'favoriteApiProfileIds': favoriteApiProfileIds,
     'supportsThinkingToggle': supportsThinkingToggle,
@@ -866,6 +868,22 @@ class ModelSettings {
         .map(ApiProfile.fromJson)
         .toList();
     var profiles = parsedProfiles;
+    final capabilityDefaultsVersion =
+        (json['apiProfileCapabilityDefaultsVersion'] as num?)?.toInt() ?? 0;
+    if (capabilityDefaultsVersion < 1) {
+      profiles = profiles
+          .map(
+            (profile) => profile.isBuiltInKilo
+                ? profile
+                : profile.copyWith(
+                    supportsThinkingToggle: true,
+                    supportsThinkingLevels: true,
+                    supportsImages: true,
+                    supportsFiles: true,
+                  ),
+          )
+          .toList();
+    }
     var defaultProfileId = json['defaultApiProfileId'] as String?;
     if (profiles.isEmpty) {
       final legacyIsDeepSeek =

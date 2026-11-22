@@ -339,11 +339,11 @@ class _ApiProfileEditorPageState extends State<ApiProfileEditorPage> {
   late int _contextTokens = widget.profile?.contextWindowTokens ?? 1000000;
   late bool _autoCompress = widget.profile?.autoCompressContext ?? true;
   late int _compressionPercent = widget.profile?.autoCompressAtPercent ?? 80;
-  late bool _supportsThinking = widget.profile?.supportsThinkingToggle ?? false;
+  late bool _supportsThinking = widget.profile?.supportsThinkingToggle ?? true;
   late bool _supportsThinkingLevels =
-      widget.profile?.supportsThinkingLevels ?? false;
-  late bool _supportsImages = widget.profile?.supportsImages ?? false;
-  late bool _supportsFiles = widget.profile?.supportsFiles ?? false;
+      widget.profile?.supportsThinkingLevels ?? true;
+  late bool _supportsImages = widget.profile?.supportsImages ?? true;
+  late bool _supportsFiles = widget.profile?.supportsFiles ?? true;
   bool _showKey = false;
 
   @override
