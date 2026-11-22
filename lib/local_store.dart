@@ -26,6 +26,8 @@ class LocalStore {
   );
   static const _settingsKey = 'suiwen.model-settings.v1';
   static const _modelDataConsentsKey = 'suiwen.model-data-consents.v1';
+  static const _onboardingCompleteKey = 'cwhale.onboarding.complete.v1';
+  static const _onboardingStartedKey = 'cwhale.onboarding.started.v1';
 
   Future<File> _chatFile() async {
     final directory = await getApplicationSupportDirectory();
@@ -947,6 +949,31 @@ class LocalStore {
 
   Future<void> saveSettings(ModelSettings settings) =>
       _secure.write(key: _settingsKey, value: jsonEncode(settings.toJson()));
+
+  Future<bool> hasCompletedOnboarding() async =>
+      await _secure.read(key: _onboardingCompleteKey) == 'true';
+
+  Future<bool> hasStartedOnboarding() async =>
+      await _secure.read(key: _onboardingStartedKey) == 'true';
+
+  Future<void> markOnboardingStarted() =>
+      _secure.write(key: _onboardingStartedKey, value: 'true');
+
+  Future<void> markOnboardingCompleted() =>
+      _secure.write(key: _onboardingCompleteKey, value: 'true');
+
+  /// Existing installs should enter chat directly instead of being sent
+  /// through first-run onboarding after an app update.
+  Future<bool> hasExistingLocalData() async {
+    final index = await _threadIndexFile();
+    if (await index.exists()) return true;
+    final legacyChats = await _chatFile();
+    if (await legacyChats.exists()) return true;
+    final memories = await _importantMemoryFile();
+    if (await memories.exists()) return true;
+    final settings = await _secure.read(key: _settingsKey);
+    return settings != null && settings.isNotEmpty;
+  }
 
   Future<Set<String>> loadModelDataConsents() async {
     final saved = await _secure.read(key: _modelDataConsentsKey);

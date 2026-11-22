@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>Cwhale · 引导页预览</title>
+  <style>
+    :root {
+      color-scheme: light; --bg:#fff; --ink:#202126; --muted:#737781;
+      --line:#e7e9ee; --blue:#6686f5; --blue-dark:#4d6fe8;
+    }
+    * { box-sizing:border-box; }
+    body {
+      margin:0; min-height:100vh; display:grid; place-items:center;
+      background:#eff1f5; color:var(--ink);
+      font-family:Inter,"SF Pro Display","Segoe UI","Noto Sans SC",sans-serif;
+    }
+    body.dark {
+      color-scheme:dark; --bg:#111214; --ink:#f1f2f4; --muted:#9b9da5;
+      --line:#36383e; --blue:#829aff; --blue-dark:#9aafff; background:#08090a;
+    }
+    button,input { font:inherit; color:inherit; }
+    .device {
+      width:min(100%,430px); height:min(900px,100vh); min-height:650px;
+      display:flex; flex-direction:column; overflow:hidden; background:var(--bg);
+      border:1px solid rgba(128,135,151,.22); border-radius:28px;
+    }
+    .status { height:38px; padding:12px 25px 0; display:flex; justify-content:space-between; color:var(--muted); font-size:11px; }
+    header { display:flex; align-items:center; padding:18px 27px 13px; }
+    .brand { flex:1; font-size:25px; line-height:1; font-weight:750; letter-spacing:-1.2px; }
+    .theme {
+      width:34px; height:34px; border:0; border-radius:50%; background:transparent;
+      color:var(--muted); font-size:19px; cursor:pointer;
+    }
+    .progress-wrap { padding:0 28px 0; color:var(--muted); font-size:11px; }
+    .progress-meta { display:flex; justify-content:space-between; }
+    .track { height:2px; margin-top:10px; background:var(--line); }
+    .bar { height:100%; width:20%; background:var(--blue); transition:width .25s ease; }
+    main { min-height:0; flex:1; display:flex; flex-direction:column; overflow:auto; padding:45px 29px 22px; }
+    .page { display:none; }
+    .page.active { display:block; }
+    .device.welcome header .brand { visibility:hidden; }
+    .device.welcome main { padding-top:0; }
+    #welcomePage.active { flex:1; display:flex; flex-direction:column; justify-content:flex-start; text-align:center; transform:none; }
+    #welcomePage h1 { margin-bottom:8px; font-size:43px; letter-spacing:-1.8px; background:linear-gradient(100deg,#5375ed,#20b9c7); color:transparent; background-clip:text; -webkit-background-clip:text; }
+    .welcome-ornament { display:flex; align-items:center; justify-content:center; gap:10px; margin:0 0 15px; color:var(--blue); font-size:12px; }
+    .welcome-ornament span { width:35px; height:1px; background:linear-gradient(90deg,transparent,var(--blue)); }
+    .welcome-ornament span:last-child { transform:scaleX(-1); }
+    .welcome-tagline { margin:0 0 15px; color:var(--muted); font-size:14px; font-weight:600; letter-spacing:.04em; }
+    .welcome-tagline b { color:var(--blue-dark); font-weight:700; }
+    .welcome-features { width:100%; margin-top:7px; }
+    .welcome-feature { padding:9px 0 8px; border-bottom:1px solid var(--line); text-align:center; }
+    .welcome-feature strong { display:block; color:var(--ink); font-size:13px; font-weight:700; letter-spacing:.015em; }
+    .welcome-feature strong em { color:var(--blue-dark); font-style:normal; }
+    .welcome-feature .index { margin-right:7px; color:var(--blue); font-size:10px; font-weight:700; letter-spacing:.08em; }
+    .welcome-feature span:last-child { display:block; margin-top:3px; color:var(--muted); font-size:10px; line-height:1.35; }
+    .page:not(#welcomePage) > .kicker { text-align:center; margin-bottom:11px; }
+    .page:not(#welcomePage) > h1 { margin-bottom:8px; text-align:center; font-size:27px; }
+    .page:not(#welcomePage) > .intro { margin-bottom:17px; text-align:center; font-size:13px; line-height:1.65; }
+    .page-ornament { display:flex; align-items:center; justify-content:center; gap:9px; margin:0 auto 15px; color:var(--blue); font-size:10px; }
+    .page-ornament span { width:24px; height:1px; background:linear-gradient(90deg,transparent,var(--blue)); }
+    .page-ornament span:last-child { transform:scaleX(-1); }
+    .page-action { display:flex; justify-content:center; margin-top:20px; }
+    .page-action .action { min-width:170px; }
+    .page:not(#welcomePage) > .quiet { text-align:center; }
+    .license-lines div { padding:6px 0; border-bottom:1px solid var(--line); }
+    .license-lines strong { color:var(--blue-dark); font-weight:700; }
+    body.dark #welcomePage h1 { background-image:linear-gradient(100deg,#b7c5ff,#76d9e1); }
+    body.dark .welcome-tagline, body.dark .welcome-feature strong { color:#f1f2f4; }
+    body.dark .welcome-feature strong em, body.dark .welcome-feature .index { color:#a9baff; }
+    body.dark .welcome-feature span:last-child { color:#a7aab3; }
+    body.dark .page-ornament span { background:linear-gradient(90deg,transparent,#9aafff); }
+    @keyframes fade { from { opacity:.5; transform:translateY(4px); } to { opacity:1; transform:none; } }
+    .kicker { margin:0 0 15px; color:var(--blue-dark); font-size:11px; font-weight:700; letter-spacing:.08em; }
+    h1 { margin:0 0 17px; font-size:30px; line-height:1.22; letter-spacing:-.6px; font-weight:720; }
+    .intro { margin:0 0 25px; color:var(--muted); font-size:15px; line-height:1.75; }
+    .plain-list { margin:25px 0 0; padding:0; list-style:none; }
+    .plain-list li { position:relative; padding:12px 0 12px 17px; border-bottom:1px solid var(--line); font-size:14px; line-height:1.5; }
+    .plain-list li:before { content:""; position:absolute; left:1px; top:20px; width:5px; height:5px; border-radius:50%; background:var(--blue); }
+    .quiet { margin:20px 0 0; color:var(--muted); font-size:12px; line-height:1.7; }
+    .action { display:inline-flex; align-items:center; justify-content:center; min-height:46px; padding:0 18px; border:1px solid var(--line); border-radius:12px; background:var(--bg); color:var(--ink); font-size:13px; font-weight:650; text-decoration:none; cursor:pointer; }
+    .action.primary { border-color:var(--blue); background:var(--blue); color:#fff; }
+    body.dark .action.primary { color:#111214; }
+    .field-label { display:block; margin:21px 0 7px; font-size:12px; font-weight:650; }
+    .field { width:100%; height:47px; padding:0 13px; border:1px solid var(--line); border-radius:11px; background:var(--bg); font-size:14px; outline:none; }
+    .field:focus { border-color:var(--blue); }
+    .field::placeholder { color:#a0a3ad; }
+    .field-row { display:grid; grid-template-columns:1fr 108px; gap:8px; }
+    .code { height:47px; display:flex; align-items:center; justify-content:center; border:1px solid var(--line); border-radius:11px; color:var(--muted); letter-spacing:.25em; }
+    .inline { margin-top:17px; color:var(--muted); font-size:12px; line-height:1.7; }
+    .inline strong { color:var(--ink); }
+    .text-link { border:0; background:none; color:var(--blue-dark); text-decoration:underline; text-underline-offset:3px; cursor:pointer; font-size:12px; }
+    .license-lines { margin:20px 0; color:var(--muted); font-size:12px; line-height:2; }
+    .license-lines strong { color:var(--ink); font-weight:600; }
+    .repo { margin-top:23px; padding-top:15px; border-top:1px solid var(--line); font-size:12px; line-height:1.7; }
+    .repo a { color:var(--blue-dark); text-decoration:none; word-break:break-word; }
+    footer { padding:14px 28px calc(18px + env(safe-area-inset-bottom)); }
+    .footer-row { display:flex; gap:10px; }
+    .footer-row.single { display:block; }
+    .footer-row.single .action.primary { width:100%; }
+    .footer-row .action { flex:1; }
+    .footer-note { margin:9px 0 0; color:var(--muted); text-align:center; font-size:10px; }
+    .toast { position:absolute; left:50%; bottom:83px; transform:translate(-50%,8px); padding:10px 13px; border-radius:10px; background:#292b30; color:white; opacity:0; pointer-events:none; font-size:11px; transition:.2s; white-space:nowrap; }
+    .toast.show { opacity:1; transform:translate(-50%,0); }
+    .finished { display:none; position:absolute; inset:0; z-index:2; align-items:center; justify-content:center; flex-direction:column; padding:32px; text-align:center; background:var(--bg); }
+    .finished.show { display:flex; }
+    .finished .brand { flex:unset; color:var(--blue-dark); font-size:38px; }
+    .finished p { color:var(--muted); line-height:1.7; }
+    @media (max-width:500px) {
+      .device { width:100%; height:100vh; min-height:0; border:0; border-radius:0; }
+    }
+    @media (max-height:760px) {
+      main { padding-top:27px; }
+      h1 { font-size:27px; }
+      .plain-list li { padding-top:9px; padding-bottom:9px; }
+      .device.welcome main { padding-top:0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="device">
+    <div class="status"><span>9:41</span><span>● ● ●　◉　98%</span></div>
+    <header>
+      <div class="brand">Cwhale</div>
+      <button class="theme" id="theme" aria-label="切换深夜模式" title="切换深夜模式">◐</button>
+    </header>
+    <div class="progress-wrap">
+      <div class="progress-meta"><span id="stepName">欢迎</span><span id="stepNumber">1 / 5</span></div>
+      <div class="track"><div class="bar" id="bar"></div></div>
+    </div>
+    <main id="main">
+      <section class="page active" id="welcomePage">
+        <h1>Cwhale</h1>
+        <div class="welcome-ornament" aria-hidden="true"><span></span>✦<span></span></div>
+        <p class="welcome-tagline">本地优先 · <b>自由连接</b> · 长聊延续</p>
+        <div class="welcome-features">
+          <div class="welcome-feature"><strong><span class="index">01</span><em>无需登录</em> · 隐私安全</strong><span>聊天、记忆与文件默认保存在本机</span></div>
+          <div class="welcome-feature"><strong><span class="index">02</span>DeepSeek 开箱即用</strong><span>也可连接你自己的模型服务</span></div>
+          <div class="welcome-feature"><strong><span class="index">03</span><em>极简上下文</em> · 快速响应</strong><span>按需带入相关内容，减少无关输入</span></div>
+          <div class="welcome-feature"><strong><span class="index">04</span>适配剧情模拟</strong><span>为长篇故事与连续互动设计</span></div>
+          <div class="welcome-feature"><strong><span class="index">05</span><em>独特记忆管理</em> · 对话持续延续</strong><span>重要内容由你管理，长聊接续更自然</span></div>
+        </div>
+      </section>
+
+      <section class="page">
+        <p class="kicker">第二步</p>
+        <h1>导入 DeepSeek 对话</h1>
+        <div class="page-ornament" aria-hidden="true"><span></span>✦<span></span></div>
+        <p class="intro">将已有对话导入 Cwhale，原有记录不会受到影响。导入文件保存在本机。</p>
+        <div class="page-action"><button class="action primary" onclick="toast('这里会打开现有的 DeepSeek 导入页')">打开导入页面　→</button></div>
+        <p class="quiet">支持 DeepSeek 导出的 ZIP 文件或下载链接。也可以暂时跳过，以后从侧边栏导入。</p>
+      </section>
+
+      <section class="page">
+        <p class="kicker">第三步</p>
+        <h1>配置 DeepSeek API</h1>
+        <div class="page-ornament" aria-hidden="true"><span></span>✦<span></span></div>
+        <p class="intro">如果你已经有 API Key，可以粘贴到下方；没有的话之后再配置。</p>
+        <label class="field-label" for="apiKey">API Key</label>
+        <input class="field" id="apiKey" type="password" placeholder="粘贴你的 API Key">
+        <p class="inline"><strong>加密存储在本机</strong><br>请妥善保存 API Key，不要暴露给不可信的服务商或第三方，以免被盗用。</p>
+      </section>
+
+      <section class="page">
+        <p class="kicker">第四步 · 可选</p>
+        <h1>注册并登录账号</h1>
+        <div class="page-ornament" aria-hidden="true"><span></span>✦<span></span></div>
+        <p class="intro">填写邮箱并完成验证后，账号会自动登录，可领取即将开放的免费额度。也可以跳过，继续使用全部功能。</p>
+        <label class="field-label" for="email">账号邮箱</label>
+        <input class="field" id="email" type="email" placeholder="name@example.com">
+        <label class="field-label" for="password">密码</label>
+        <input class="field" id="password" type="password" placeholder="至少 8 个字符">
+        <label class="field-label" for="confirm">确认密码</label>
+        <input class="field" id="confirm" type="password" placeholder="再次输入密码">
+        <label class="field-label">验证码</label>
+        <div class="field-row"><div class="code">· · · · · ·</div><button class="action" onclick="toast('预览模式不会发送验证码')">获取验证码</button></div>
+        <p class="inline">账号仅用于登录和未来额度发放，不会读取本机聊天内容。使用免费额度时，会说明相关内容的发送范围。</p>
+      </section>
+
+      <section class="page">
+        <p class="kicker">第五步</p>
+        <h1>开源致谢</h1>
+        <div class="page-ornament" aria-hidden="true"><span></span>✦<span></span></div>
+        <p class="intro">Cwhale 建立在开源社区的成果之上，感谢作者与维护者。</p>
+        <div class="license-lines">
+          <div><strong>Flutter</strong> — Google / Flutter Authors · BSD-3-Clause</div>
+          <div><strong>archive</strong> — Brendan Duncan · MIT</div>
+          <div><strong>file_picker</strong> — Miguel Ruivo 等 · MIT</div>
+          <div><strong>flutter_foreground_task</strong> — Dev-hwang · MIT</div>
+          <div><strong>flutter_secure_storage</strong> — German Saprykin 等 · BSD-3-Clause</div>
+          <div><strong>html、http、file</strong> — Dart Authors · BSD-3-Clause</div>
+          <div><strong>open_xml</strong> — Rody Davis · Apache-2.0</div>
+          <div><strong>path_provider</strong> — Flutter Authors · BSD-3-Clause</div>
+          <div><strong>trafilatura</strong> — Kamran X · Apache-2.0</div>
+        </div>
+        <div class="repo">Cwhale 本身采用 MIT 协议开源<br><a href="https://github.com/SymbioticUniverse/Cwhale-" target="_blank" rel="noopener">github.com/SymbioticUniverse/Cwhale-</a><br><span style="color:var(--muted)">感谢所有贡献者。</span></div>
+      </section>
+    </main>
+    <footer>
+      <div class="footer-row">
+        <button class="action" id="skip">暂时跳过</button>
+        <button class="action primary" id="next">下一页　→</button>
+      </div>
+      <div class="footer-note" id="footerNote">聊天和记忆都留在本机。</div>
+    </footer>
+    <div class="toast" id="toast"></div>
+    <div class="finished" id="finished"><div class="brand">Cwhale</div><h1>开始进入 Cwhale 世界</h1><p>你的模型，你的对话，留在本机。</p><button class="action primary" onclick="restart()">重新预览</button></div>
+  </div>
+  <script>
+    (function () {
+      var current = 0;
+      var sections = Array.prototype.slice.call(document.querySelectorAll('.page'));
+      var names = ['欢迎', '导入对话', '配置 API', '可选账号', '开源致谢'];
+      var notes = ['聊天和记忆都留在本机。', '原有对话不受影响。', 'API Key 加密存储在本机。', '不登录也能使用全部功能。', '开源致谢，感谢社区。'];
+      function show(index) {
+        current = Math.max(0, Math.min(4, index));
+        sections.forEach(function (section, i) { section.classList.toggle('active', i === current); });
+        document.getElementById('stepName').textContent = names[current];
+        document.getElementById('stepNumber').textContent = (current + 1) + ' / 5';
+        document.getElementById('bar').style.width = ((current + 1) * 20) + '%';
+        document.getElementById('footerNote').textContent = notes[current];
+        document.getElementById('next').textContent = current === 4 ? '开始进入 Cwhale　→' : (current === 3 ? '注册并登录' : '下一页　→');
+        document.getElementById('skip').textContent = current === 3 ? '暂时跳过' : '暂时跳过';
+        document.querySelector('.device').classList.toggle('welcome', current === 0);
+        document.getElementById('skip').style.display = (current === 0 || current === 4) ? 'none' : '';
+        document.querySelector('.footer-row').classList.toggle('single', current === 0 || current === 4);
+        document.getElementById('footerNote').style.display = current === 0 ? 'none' : '';
+        document.getElementById('main').scrollTop = 0;
+      }
+      document.getElementById('next').addEventListener('click', function () {
+        if (current === 3) toast('完成注册后将自动登录');
+        else if (current < 4) show(current + 1);
+        else document.getElementById('finished').classList.add('show');
+      });
+      document.getElementById('skip').addEventListener('click', function () {
+        if (current < 4) show(current + 1);
+      });
+      document.getElementById('theme').addEventListener('click', function () {
+        document.body.classList.toggle('dark');
+        this.textContent = document.body.classList.contains('dark') ? '☀' : '◐';
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', document.body.classList.contains('dark') ? '#111214' : '#ffffff');
+      });
+      window.toast = function (message) {
+        var box = document.getElementById('toast');
+        box.textContent = message; box.classList.add('show');
+        window.clearTimeout(window.__toastTimer);
+        window.__toastTimer = window.setTimeout(function () { box.classList.remove('show'); }, 1800);
+      };
+      window.restart = function () {
+        document.getElementById('finished').classList.remove('show');
+        show(0);
+      };
+      var params = new URLSearchParams(window.location.search);
+      if (params.has('dark')) {
+        document.body.classList.add('dark');
+        document.getElementById('theme').textContent = '☀';
+      }
+      var requested = parseInt(params.get('page') || '1', 10);
+      show(Math.max(1, Math.min(5, requested)) - 1);
+    }());
+  </script>
+</body>
+</html>
