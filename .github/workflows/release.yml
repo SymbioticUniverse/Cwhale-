@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing version tag to publish
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -15,9 +21,13 @@ concurrency:
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -29,7 +39,7 @@ jobs:
       - name: Verify version matches tag
         shell: pwsh
         run: |
-          $tagVersion = $env:GITHUB_REF_NAME -replace '^v', ''
+          $tagVersion = $env:RELEASE_TAG -replace '^v', ''
           $versionLine = Get-Content pubspec.yaml | Where-Object { $_ -match '^version:' } | Select-Object -First 1
           if (-not $versionLine) { throw 'pubspec.yaml has no version.' }
           $packageVersion = (($versionLine -replace '^version:\s*', '').Trim() -split '\+')[0]
@@ -59,6 +69,8 @@ jobs:
   publish-release:
     runs-on: ubuntu-latest
     needs: build-windows
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
     steps:
       - name: Download release assets
         uses: actions/download-artifact@v4
@@ -72,17 +84,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           shopt -s nullglob
           assets=(release-assets/*)
           if [[ ${#assets[@]} -lt 2 ]]; then
             echo "Expected Windows installer and portable ZIP." >&2
             exit 1
           fi
-          if gh release view "$GITHUB_REF_NAME" --json tagName >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+          if gh release view "$RELEASE_TAG" --json tagName >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
               --verify-tag \
               --title "Cwhale $version" \
               --generate-notes
