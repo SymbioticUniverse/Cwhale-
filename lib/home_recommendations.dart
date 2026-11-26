@@ -111,13 +111,13 @@ class _HomeRecommendationsState extends State<HomeRecommendations>
   static int _nextRound = DateTime.now().millisecondsSinceEpoch;
   late int _round = _nextRound++;
   List<String> _radar = const [];
-  int _requestId = 0;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _loadRadar();
+    _radar = ResourceRadar.instance.recommendedPrompts();
+    ResourceRadar.instance.addListener(_refreshRadarPrompts);
   }
 
   @override
@@ -134,13 +134,18 @@ class _HomeRecommendationsState extends State<HomeRecommendations>
   }
 
   Future<void> _loadRadar() async {
-    final id = ++_requestId;
-    final prompts = await ResourceRadar.instance.recommendedPrompts();
-    if (mounted && id == _requestId) setState(() => _radar = prompts);
+    await ResourceRadar.instance.refresh();
+  }
+
+  void _refreshRadarPrompts() {
+    if (!mounted) return;
+    final prompts = ResourceRadar.instance.recommendedPrompts();
+    setState(() => _radar = prompts);
   }
 
   @override
   void dispose() {
+    ResourceRadar.instance.removeListener(_refreshRadarPrompts);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

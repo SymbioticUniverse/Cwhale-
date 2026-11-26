@@ -33,9 +33,8 @@ class GenerationProtection {
   static int get activeLeases => _leases;
   static String? get lastStartError => _lastStartError;
 
-  /// Must run on the UI isolate before the app starts, so the receive port is
-  /// registered before Android creates the background Flutter engine.
-  static void initialize() {
+  /// Register the UI isolate before starting the Android background engine.
+  static void _initialize() {
     if (!Platform.isAndroid || _initialized) return;
     FlutterForegroundTask.initCommunicationPort();
     FlutterForegroundTask.addTaskDataCallback(_handleTaskMessage);
@@ -91,13 +90,13 @@ class GenerationProtection {
 
   static Future<bool> acquire() async {
     if (!Platform.isAndroid) return true;
-    initialize();
     var started = false;
     final operation = _operations.then((_) async {
       _stopTimer?.cancel();
       _stopTimer = null;
       if (_leases == 0 || !_serviceStarted) {
         try {
+          _initialize();
           await _ensureServiceReady();
           _lastStartError = null;
           started = true;

@@ -35,6 +35,7 @@ import 'memory_router.dart';
 import 'notifications_page.dart';
 import 'office_tools.dart';
 import 'resource_radar.dart';
+import 'resource_radar_settings_page.dart';
 import 'capability_prompt.dart';
 import 'server_managed_model_client.dart';
 import 'tool_executor.dart';
@@ -10141,6 +10142,16 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
             ]),
             section('应用', [
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                leading: Icon(Icons.rss_feed_rounded, color: _green),
+                title: const Text('福利雷达'),
+                subtitle: const Text('管理数据源、订阅与更新'),
+                trailing: Icon(Icons.chevron_right_rounded, color: _muted),
+                onTap: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute(builder: (_) => const ResourceRadarSettingsPage()),
+                ),
+              ),
               ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                 leading: Icon(Icons.cloud_sync_outlined, color: _green),

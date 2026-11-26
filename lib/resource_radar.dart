@@ -2,30 +2,51 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:charset/charset.dart';
+import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:html/parser.dart' as html;
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'package:xml/xml.dart';
 
-/// A device-local index of currently claimable game offers.
-class ResourceRadar {
+part 'resource_radar_collectors.dart';
+part 'resource_radar_entry.dart';
+
+class RadarSource {
+  RadarSource._(Map<String, dynamic> row)
+    : id = row['id'] as String,
+      name = row['name'] as String,
+      kind = row['kind'] as String,
+      defaultEnabled = row['enabled'] == true,
+      interval = Duration(
+        seconds: (row['intervalSec'] as int? ?? 3600).clamp(900, 86400),
+      ),
+      _config = _map(row['config']);
+
+  final String id, name, kind;
+  final bool defaultEnabled;
+  final Duration interval;
+  final Map<String, dynamic> _config;
+  bool get needsImport => kind == 'ingest';
+  String get category => _sourceCategory(this);
+}
+
+class ResourceRadar extends ChangeNotifier {
   ResourceRadar._();
 
   static final instance = ResourceRadar._();
   static const toolName = 'search_resource_radar';
   static const gamerPowerCredit = '[GamerPower](https://www.gamerpower.com/)';
-  static const _freshFor = Duration(minutes: 15);
-  static const _keepFor = Duration(hours: 24);
-  static const _sources = ['Epic Games', 'GamerPower'];
+  static const _secure = FlutterSecureStorage();
+  static const _ngaKey = 'resource_radar_nga_login';
 
   static bool matchesRequest(String text) {
-    if (RegExp(r'资源雷达|福利雷达', caseSensitive: false).hasMatch(text)) {
-      return true;
-    }
+    if (RegExp(r'资源雷达|福利雷达').hasMatch(text)) return true;
     return RegExp(
-          r'限免|免费|白嫖|喜加一|免费领|赠送|free|giveaway',
-          caseSensitive: false,
-        ).hasMatch(text) &&
-        RegExp(
-          r'游戏|大作|game|steam|epic|gog',
+          r'福利|限免|白嫖|喜加一|免费|兑换码|礼包|羊毛|优惠|好价|折扣|giveaway|freebie|\bfree\b',
           caseSensitive: false,
         ).hasMatch(text) &&
         RegExp(
@@ -34,395 +55,446 @@ class ResourceRadar {
         ).hasMatch(text);
   }
 
-  final _snapshots = <String, ({DateTime fetchedAt, List<_Offer> offers})>{};
-  final _failed = <String>{};
-  Future<void>? _refreshing;
-  bool _loaded = false;
-  DateTime? _lastAttempt;
+  List<RadarSource> _sources = const [];
+  List<RadarSource> get sources => _sources;
+  final _enabled = <String, bool>{};
+  final _feeds = <String, String>{};
+  final _channels = <String, List<String>>{};
+  final _imports = <String, List<_Entry>>{};
+  final _cache = <String, ({DateTime at, List<_Entry> items})>{};
+  final _errors = <String, String>{};
+  final _attempts = <String, DateTime>{};
+  final _versions = <String, int>{};
+  String _ngaLogin = '';
+  Future<void>? _loading, _refreshing;
+  Future<void> _writing = Future.value();
+  bool get refreshing => _refreshing != null;
+  bool get hasNgaLogin => _ngaLogin.isNotEmpty;
+  bool isEnabled(RadarSource source) =>
+      _enabled[source.id] ?? source.defaultEnabled;
+  int get enabledCount => _sources.where(isEnabled).length;
+  String feed(RadarSource source) => _feeds[source.id] ?? '';
+  List<String> channels(RadarSource source) =>
+      _channels[source.id] ?? _strings(source._config['channels']);
 
-  Future<void> refresh() => _refreshing ??= _refresh().whenComplete(() {
-    _refreshing = null;
-  });
+  bool _canFetch(RadarSource s) =>
+      _feeds.containsKey(s.id) ||
+      switch (s.kind) {
+        'ingest' => false,
+        'nga' => hasNgaLogin,
+        'telegram' => channels(s).isNotEmpty,
+        _ => true,
+      };
 
-  Future<List<String>> recommendedPrompts() async {
-    await refresh();
-    final now = DateTime.now();
-    final offers = <String, String>{};
-    for (final source in _sources) {
-      final saved = _snapshots[source];
-      if (saved == null || now.difference(saved.fetchedAt) >= _freshFor) {
-        continue;
-      }
-      for (final item in saved.offers) {
-        if (!item.matches('pc', '', now)) continue;
-        final title = item.title
-            .replaceAll(
-              RegExp(
-                r'\((?:Epic Games|Steam|GOG)[^)]*\)',
-                caseSensitive: false,
-              ),
-              '',
-            )
-            .replaceFirst(RegExp(r'\s+giveaway$', caseSensitive: false), '')
-            .replaceAll(RegExp(r'\s+'), ' ')
-            .trim();
-        if (title.isEmpty || title.runes.length > 44) continue;
-        offers.putIfAbsent(item.dedupKey, () => '用资源雷达查《$title》的领取方式');
-      }
+  String status(RadarSource s) {
+    final id = s.id;
+    if (!isEnabled(s)) return '已关闭';
+    if (!_canFetch(s)) {
+      final count = _imports[id]?.length ?? 0;
+      if (count > 0) return '已导入 $count 条';
+      if (s.kind == 'nga') return '需要 NGA 登录';
+      if (s.kind == 'telegram') return '需要公开频道';
+      return '需要订阅地址或导入';
     }
-    return offers.values.take(12).toList();
+    final snapshot = _cache[id];
+    final cached =
+        snapshot != null &&
+            DateTime.now().difference(snapshot.at) < const Duration(hours: 48)
+        ? snapshot
+        : null;
+    final error = _errors[id];
+    if (error != null) return cached == null ? error : '$error · 保留缓存';
+    if (cached == null) return refreshing ? '等待更新' : '尚未更新';
+    final count = cached.items.length;
+    final date = cached.at.toLocal().toString().substring(0, 16);
+    return '已获取 $count 条 · $date';
   }
 
-  Future<File> _cacheFile() async {
-    final directory = await getApplicationSupportDirectory();
-    return File(
-      '${directory.path}${Platform.pathSeparator}resource-radar-v1.json',
-    );
+  Future<void> initialize() => _loading ??= _load();
+
+  Future<File> _file(String name) async {
+    final dir = await getApplicationSupportDirectory();
+    final path = dir.path;
+    return File('$path/resource-radar-$name.json');
+  }
+
+  Future<Map<String, dynamic>> _read(String name) async {
+    try {
+      return _map(jsonDecode(await (await _file(name)).readAsString()));
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  Future<void> _write(String name, Map<String, Object?> data) {
+    final operation = _writing.then((_) async {
+      final file = await _file(name);
+      await file.parent.create(recursive: true);
+      final path = file.path;
+      final pending = File('$path.tmp');
+      await pending.writeAsString(jsonEncode(data), flush: true);
+      await pending.rename(path);
+    });
+    _writing = operation.catchError((Object _) {});
+    return operation;
   }
 
   Future<void> _load() async {
-    if (_loaded) return;
-    _loaded = true;
-    try {
-      final saved = _map(jsonDecode(await (await _cacheFile()).readAsString()));
-      for (final name in _sources) {
-        final source = _map(saved[name]);
-        final fetchedAt = DateTime.tryParse(_text(source['fetchedAt']));
-        if (fetchedAt == null) continue;
-        _snapshots[name] = (
-          fetchedAt: fetchedAt,
-          offers: _list(source['offers']).map(_Offer.fromJson).toList(),
+    final catalog = _map(
+      jsonDecode(
+        await rootBundle.loadString('assets/resource_radar/sources.json'),
+      ),
+    );
+    _sources = List.unmodifiable(_maps(catalog['sources']).map(RadarSource._));
+    final settings = await _read('settings-v2');
+    final cache = await _read('cache-v2');
+    for (final s in _sources) {
+      final id = s.id;
+      final enabled = _map(settings['enabled'])[id];
+      if (enabled is bool) _enabled[id] = enabled;
+      final feed = _text(_map(settings['feeds'])[id]);
+      if (_https(feed) != null) _feeds[id] = feed;
+      final channels = _map(settings['channels'])[id];
+      if (channels is List) _channels[id] = _strings(channels);
+      final imported = _map(settings['imports'])[id];
+      if (imported is List)
+        _imports[id] = _maps(imported).map(_Entry.fromJson).toList();
+      final snapshot = _map(cache[id]);
+      final at = DateTime.tryParse(_text(snapshot['at']));
+      if (at != null)
+        _cache[id] = (
+          at: at,
+          items: _maps(snapshot['items']).map(_Entry.fromJson).toList(),
         );
-      }
+    }
+    try {
+      _ngaLogin = await _secure.read(key: _ngaKey) ?? '';
     } catch (_) {
-      // A missing or unreadable cache never prevents fetching public offers.
+      // The public sources do not require secure storage.
     }
   }
 
-  Future<void> _refresh() async {
-    await _load();
-    final now = DateTime.now();
-    final lastAttempt = _lastAttempt;
-    if (lastAttempt != null &&
-        now.difference(lastAttempt) < const Duration(minutes: 1)) {
+  Future<void> _saveSettings() => _write('settings-v2', {
+    'enabled': Map.of(_enabled),
+    'feeds': Map.of(_feeds),
+    'channels': Map.of(_channels),
+    'imports': {
+      for (final e in _imports.entries)
+        e.key: e.value.map((item) => item.toJson()).toList(),
+    },
+  });
+
+  Future<void> _saveCache() => _write('cache-v2', {
+    for (final e in _cache.entries)
+      e.key: {
+        'at': e.value.at.toIso8601String(),
+        'items': e.value.items.map((item) => item.toJson()).toList(),
+      },
+  }).catchError((Object _) {});
+
+  Future<void> setEnabled(RadarSource source, bool enabled) async {
+    _enabled[source.id] = enabled;
+    notifyListeners();
+    await _saveSettings();
+    if (enabled) unawaited(refresh());
+  }
+
+  Future<void> restoreDefaults() async {
+    _enabled.clear();
+    notifyListeners();
+    await _saveSettings();
+    unawaited(refresh());
+  }
+
+  void _invalidate(RadarSource source) {
+    final id = source.id;
+    _versions.update(id, (v) => v + 1, ifAbsent: () => 1);
+    _cache.remove(id);
+    _attempts.remove(id);
+    _errors.remove(id);
+  }
+
+  Future<void> _changed(RadarSource source) async {
+    _invalidate(source);
+    notifyListeners();
+    await _saveSettings();
+    await _saveCache();
+    unawaited(refresh());
+  }
+
+  Future<void> setFeed(RadarSource source, String raw) async {
+    final url = raw.trim();
+    if (url.isEmpty) {
+      _feeds.remove(source.id);
+    } else {
+      final uri = _https(url);
+      if (uri == null ||
+          uri.queryParameters.keys.any(
+            (key) => RegExp(
+              r'token|password|secret|key|sign|auth',
+              caseSensitive: false,
+            ).hasMatch(key),
+          )) {
+        throw const FormatException('请输入不含凭据的公开 HTTPS 订阅地址');
+      }
+      _feeds[source.id] = url;
+    }
+    await _changed(source);
+  }
+
+  Future<void> setChannels(RadarSource source, String raw) async {
+    final names = raw
+        .split(RegExp(r'[\s,，]+'))
+        .where((s) => s.isNotEmpty)
+        .map((s) => s.replaceFirst('@', ''))
+        .toSet()
+        .toList();
+    if (names.length > 8 ||
+        names.any((s) => !RegExp(r'^\w{4,32}$').hasMatch(s))) {
+      throw const FormatException('请输入最多八个公开频道用户名');
+    }
+    _channels[source.id] = names;
+    await _changed(source);
+  }
+
+  Future<void> setNgaLogin(String raw) async {
+    final value = raw.trim();
+    if (value.isEmpty) {
+      await _secure.delete(key: _ngaKey);
+      _ngaLogin = '';
+    } else {
+      final matches = RegExp(
+        r'(?:^|;\s*)(ngaPassportUid|ngaPassportCid)=([^;\s]+)',
+      ).allMatches(value);
+      final parts = {for (final match in matches) match[1]!: match[2]!};
+      if (parts.length != 2 || value.contains(RegExp(r'[\r\n]'))) {
+        throw const FormatException('需要 ngaPassportUid 和 ngaPassportCid 两项');
+      }
+      _ngaLogin = parts.entries
+          .map((e) {
+            final key = e.key;
+            final value = e.value;
+            return '$key=$value';
+          })
+          .join('; ');
+      await _secure.write(key: _ngaKey, value: _ngaLogin);
+    }
+    for (final s in _sources.where((s) => s.kind == 'nga')) {
+      _invalidate(s);
+    }
+    notifyListeners();
+    await _saveCache();
+    unawaited(refresh());
+  }
+
+  Future<void> importItems(RadarSource source, String raw) async {
+    if (!source.needsImport || raw.length > 1024 * 1024)
+      throw const FormatException('导入内容过大或来源不支持导入');
+    final decoded = jsonDecode(raw);
+    final items = decoded is List ? decoded : _map(decoded)['items'];
+    if (items is! List)
+      throw const FormatException('需要包含 title 和 url 的 JSON 条目数组');
+    final entries = _maps(items)
+        .take(100)
+        .map(
+          (e) => _entry(
+            source,
+            e['title'],
+            e['url'],
+            summary: e['summary'],
+            published: e['publishedAt'],
+          ),
+        )
+        .nonNulls
+        .toList();
+    if (entries.isEmpty) throw const FormatException('没有可导入的有效标题和链接');
+    _imports[source.id] = entries;
+    notifyListeners();
+    await _saveSettings();
+  }
+
+  Future<void> clearImport(RadarSource source) async {
+    _imports.remove(source.id);
+    notifyListeners();
+    await _saveSettings();
+  }
+
+  Future<void> refresh({bool force = false}) =>
+      _refreshing ??= _refresh(force).whenComplete(() {
+        _refreshing = null;
+        notifyListeners();
+      });
+
+  Future<void> _refresh(bool force) async {
+    try {
+      await initialize();
+    } catch (_) {
       return;
     }
-    final due = _sources.where((name) {
-      final saved = _snapshots[name];
-      return saved == null || now.difference(saved.fetchedAt) >= _freshFor;
-    }).toList();
-    if (due.isEmpty) return;
-    _lastAttempt = now;
-    final client = http.Client();
+    final network = _Network();
+    final attempted = <String, int>{};
     var changed = false;
+    notifyListeners();
+    // Visit the stores and dedicated free sources before broad news feeds.
+    final ordered = [..._sources]
+      ..sort((a, b) => _priority(b).compareTo(_priority(a)));
     try {
-      await Future.wait(
-        due.map((name) async {
+      Future<void> worker() async {
+        while (true) {
+          final now = DateTime.now();
+          final source = ordered.where((s) {
+            final id = s.id;
+            if (!isEnabled(s) ||
+                !_canFetch(s) ||
+                attempted[id] == (_versions[id] ?? 0))
+              return false;
+            final last = _attempts[id];
+            final at = _cache[id]?.at;
+            return (last == null ||
+                    now.difference(last) >= const Duration(minutes: 2)) &&
+                (force || at == null || now.difference(at) >= s.interval);
+          }).firstOrNull;
+          if (source == null) return;
+          final id = source.id;
+          final version = _versions[id] ?? 0;
+          attempted[id] = version;
+          _attempts[id] = now;
           try {
-            final offers = name == 'Epic Games'
-                ? await _epic(client)
-                : await _gamerPower(client);
-            _snapshots[name] = (fetchedAt: DateTime.now(), offers: offers);
-            _failed.remove(name);
+            final items = await _collect(
+              network,
+              source,
+              _feeds[id],
+              channels(source),
+              _ngaLogin,
+            );
+            if ((_versions[id] ?? 0) != version) continue;
+            _cache[id] = (at: DateTime.now(), items: items.take(80).toList());
+            _errors.remove(id);
             changed = true;
+          } on _SourceFailure catch (error) {
+            if ((_versions[id] ?? 0) == version) _errors[id] = error.message;
           } catch (_) {
-            _failed.add(name);
+            if ((_versions[id] ?? 0) == version) _errors[id] = '连接失败或格式不兼容';
           }
-        }),
-      );
+        }
+      }
+
+      await Future.wait(List.generate(8, (_) => worker()));
     } finally {
-      client.close();
+      network.close();
     }
-    if (!changed) return;
-    try {
-      final file = await _cacheFile();
-      await file.parent.create(recursive: true);
-      final pending = File('${file.path}.tmp');
-      await pending.writeAsString(
-        jsonEncode({
-          for (final entry in _snapshots.entries)
-            entry.key: {
-              'fetchedAt': entry.value.fetchedAt.toIso8601String(),
-              'offers': entry.value.offers
-                  .map((item) => item.toJson())
-                  .toList(),
-            },
-        }),
-        flush: true,
-      );
-      await pending.rename(file.path);
-    } catch (_) {
-      // Keep the successful results available in memory.
+    if (changed) await _saveCache();
+  }
+
+  Iterable<({RadarSource source, _Entry item})> _items(
+    DateTime now, {
+    bool freshOnly = false,
+  }) sync* {
+    for (final source in _sources.where(isEnabled)) {
+      final snapshot = _cache[source.id];
+      final limit = freshOnly ? source.interval : const Duration(hours: 48);
+      if (snapshot != null && now.difference(snapshot.at) < limit) {
+        for (final item in snapshot.items.where((e) => e.isCurrent(now))) {
+          yield (source: source, item: item);
+        }
+      }
+      if (!freshOnly) {
+        for (final item in (_imports[source.id] ?? const <_Entry>[]).where(
+          (e) => e.isCurrent(now),
+        )) {
+          yield (source: source, item: item);
+        }
+      }
     }
+  }
+
+  List<String> recommendedPrompts() {
+    final groups = <String, List<String>>{};
+    final seen = <String>{};
+    for (final row in _items(DateTime.now(), freshOnly: true)) {
+      final item = row.item;
+      final title = item.title;
+      if (item.kind != 'freebie' ||
+          !item.verified ||
+          title.runes.length > 44 ||
+          !seen.add(item.key))
+        continue;
+      groups.putIfAbsent(item.category, () => []).add('用福利雷达查《$title》的领取方式');
+    }
+    final result = <String>[];
+    for (var i = 0; i < 8 && result.length < 18; i++) {
+      for (final group in groups.values.where((g) => i < g.length)) {
+        result.add(group[i]);
+        if (result.length == 18) break;
+      }
+    }
+    return result;
   }
 
   Future<String> search({
     required String platform,
     required String keyword,
+    String category = 'all',
+    String kind = 'all',
+    String source = '',
   }) async {
-    await refresh();
+    await initialize();
+    final updating = refresh();
+    final query = keyword.trim().toLowerCase();
+    final filter = source.trim().toLowerCase();
     final now = DateTime.now();
-    final needle = keyword.trim().toLowerCase();
-    final offers = <String, _Offer>{};
-    final notes = <String>[];
-    for (final source in _sources) {
-      final saved = _snapshots[source];
-      if (saved == null || now.difference(saved.fetchedAt) >= _keepFor) {
-        notes.add('$source 暂不可用。');
-        continue;
-      }
-      if (_failed.contains(source)) {
-        notes.add('$source 本次刷新失败，使用 ${saved.fetchedAt.toLocal()} 的缓存。');
-      }
-      for (final item in saved.offers) {
-        if (!item.matches(platform, needle, now)) continue;
-        final key = item.dedupKey;
-        if (key.isEmpty) continue;
-        offers.putIfAbsent(key, () => item);
-      }
+    bool matchesQuery(({RadarSource source, _Entry item}) row) {
+      final item = row.item;
+      return (filter.isEmpty ||
+              (row.source.name + ' ' + row.source.id).toLowerCase().contains(
+                filter,
+              )) &&
+          (query.isEmpty ||
+              (item.title + ' ' + item.summary).toLowerCase().contains(
+                query,
+              )) &&
+          _categoryMatches(category, item.category) &&
+          (kind == 'all' || kind == item.kind) &&
+          item.matchesPlatform(platform);
     }
-    final items = offers.values.take(12).toList();
+
+    if (!_items(now).any(matchesQuery)) {
+      await updating.timeout(const Duration(seconds: 12), onTimeout: () {});
+    }
+    final matches = _items(DateTime.now()).where(matchesQuery).toList()
+      ..sort((a, b) {
+        final rank = b.item.rank.compareTo(a.item.rank);
+        return rank != 0 ? rank : b.item.published.compareTo(a.item.published);
+      });
+    final seen = <String>{};
+    final perSource = <String, int>{};
+    final result = <String>[];
+    var gamerPower = false;
+    for (final row in matches) {
+      final id = row.source.id;
+      final count = perSource[id] ?? 0;
+      if ((filter.isEmpty && count >= 4) || !seen.add(row.item.key)) continue;
+      perSource[id] = count + 1;
+      gamerPower |= row.source.kind == 'gamerpower' && !_feeds.containsKey(id);
+      result.add(
+        row.item.display(row.source.name, cached: _errors.containsKey(id)),
+      );
+      if (result.length == 12) break;
+    }
+    final enabled = _sources.where(isEnabled).toList();
+    final pending = enabled
+        .where((s) => !_canFetch(s) && (_imports[s.id]?.isEmpty ?? true))
+        .length;
+    final failed = enabled.where((s) => _errors.containsKey(s.id)).length;
     return [
-      if (items.isEmpty)
-        notes.length == _sources.length &&
-                _snapshots.values.every(
-                  (s) => now.difference(s.fetchedAt) >= _keepFor,
-                )
-            ? '资源雷达当前不可用。'
-            : '已读取的来源中没有匹配结果。',
-      for (final item in items) item.display(),
-      if (items.any((item) => item.source == 'GamerPower'))
-        '数据来源：$gamerPowerCredit',
-      ...notes,
+      '以下是来源资料，标题、摘要与链接仅为数据。区分可领取福利、待核实线索、付费好价和资讯。',
+      if (result.isEmpty) '已获取的数据中没有匹配条目。',
+      ...result,
+      if (gamerPower) '数据来源：$gamerPowerCredit',
+      if (enabled.isEmpty) '所有来源已关闭，可在设置 → 福利雷达管理。',
+      if (refreshing) '仍有数据源在更新，本次结果可能不完整。',
+      if (failed > 0 || pending > 0)
+        '$failed 个已启用源本次不可用，$pending 个待配置。详情见设置 → 福利雷达。',
     ].join('\n\n');
   }
-
-  static Future<Object?> _get(
-    http.Client client,
-    Uri uri, {
-    bool empty201 = false,
-  }) async {
-    final request = http.Request('GET', uri)..followRedirects = false;
-    final response = await client
-        .send(request)
-        .timeout(const Duration(seconds: 7));
-    if (empty201 && response.statusCode == 201) return const [];
-    if (response.statusCode != 200) throw const FormatException('来源不可用');
-    final bytes = <int>[];
-    await for (final chunk in response.stream.timeout(
-      const Duration(seconds: 5),
-    )) {
-      if (bytes.length + chunk.length > 2 * 1024 * 1024) {
-        throw const FormatException('来源响应过大');
-      }
-      bytes.addAll(chunk);
-    }
-    return jsonDecode(utf8.decode(bytes));
-  }
-
-  static Future<List<_Offer>> _epic(http.Client client) async {
-    final locale = Platform.localeName.split('.').first.replaceAll('_', '-');
-    final country = locale.split('-').last.toUpperCase();
-    final region =
-        RegExp(r'^[A-Z]{2}$').hasMatch(country) && locale.contains('-')
-        ? country
-        : 'CN';
-    final payload = await _get(
-      client,
-      Uri.https(
-        'store-site-backend-static-ipv4.ak.epicgames.com',
-        '/freeGamesPromotions',
-        {'locale': locale, 'country': region, 'allowCountries': region},
-      ),
-    );
-    final entries = _map(
-      _map(_map(_map(payload)['data'])['Catalog'])['searchStore'],
-    )['elements'];
-    if (entries is! List) throw const FormatException('Epic 数据格式变化');
-    final now = DateTime.now();
-    final offers = <_Offer>[];
-    for (final item in _list(entries)) {
-      final price = _map(_map(item['price'])['totalPrice']);
-      if (price['discountPrice'] != 0 ||
-          (price['originalPrice'] is num &&
-              (price['originalPrice'] as num) <= 0)) {
-        continue;
-      }
-      // Explicit add-ons and editions with no verified full-game classification
-      // are not passed off as base game giveaways.
-      if (item['offerType'] != 'BASE_GAME') continue;
-      final title = _text(item['title']);
-      final slug =
-          [
-                ..._list(item['offerMappings'])
-                    .map((mapping) => mapping['pageSlug']),
-                item['productSlug'],
-                item['urlSlug'],
-                ..._list(
-                  item['catalogNs'] is Map
-                      ? _map(item['catalogNs'])['mappings']
-                      : null,
-                ).map((mapping) => mapping['pageSlug']),
-              ]
-              .map(_text)
-              .map((value) => value.replaceFirst(RegExp(r'/home$'), ''))
-              .firstWhere(
-                (value) => RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(value),
-                orElse: () => '',
-              );
-      if (title.isEmpty || slug.isEmpty) continue;
-      final promotions = _list(_map(item['promotions'])['promotionalOffers']);
-      for (final window in promotions.expand(
-        (group) => _list(group['promotionalOffers']),
-      )) {
-        final start = DateTime.tryParse(_text(window['startDate']));
-        final end = DateTime.tryParse(_text(window['endDate']));
-        if (_map(window['discountSetting'])['discountPercentage'] != 0 ||
-            start == null ||
-            end == null ||
-            now.isBefore(start) ||
-            !now.isBefore(end)) {
-          continue;
-        }
-        offers.add(
-          _Offer(
-            title: title,
-            source: 'Epic Games',
-            platforms: 'PC, Epic Games Store',
-            url: 'https://store.epicgames.com/p/$slug',
-            endsAt: end.toIso8601String(),
-          ),
-        );
-        break;
-      }
-    }
-    return offers;
-  }
-
-  static Future<List<_Offer>> _gamerPower(http.Client client) async {
-    final payload = await _get(
-      client,
-      Uri.https('www.gamerpower.com', '/api/giveaways', {'type': 'game'}),
-      empty201: true,
-    );
-    if (payload is! List) throw const FormatException('GamerPower 数据格式变化');
-    return [
-      for (final item in _list(payload).take(250))
-        if (_text(item['status']).toLowerCase() == 'active' &&
-            _text(item['type']).toLowerCase() == 'game' &&
-            _text(item['title']).isNotEmpty &&
-            _gamerPowerLink(item['gamerpower_url']))
-          _Offer(
-            title: _text(item['title']),
-            source: 'GamerPower',
-            platforms: _text(item['platforms']),
-            url: _text(item['gamerpower_url']),
-            endsAt: DateTime.tryParse(_text(item['end_date'])) == null
-                ? ''
-                : _text(item['end_date']),
-          ),
-    ];
-  }
-
-  static bool _gamerPowerLink(Object? value) {
-    final uri = Uri.tryParse(_text(value));
-    return uri != null &&
-        uri.scheme == 'https' &&
-        const {'gamerpower.com', 'www.gamerpower.com'}.contains(uri.host);
-  }
-}
-
-Map<String, dynamic> _map(Object? value) =>
-    value is Map<String, dynamic> ? value : const {};
-
-Iterable<Map<String, dynamic>> _list(Object? value) =>
-    value is List ? value.whereType<Map<String, dynamic>>() : const [];
-
-String _text(Object? value) => value is String ? value.trim() : '';
-
-class _Offer {
-  const _Offer({
-    required this.title,
-    required this.source,
-    required this.platforms,
-    required this.url,
-    required this.endsAt,
-  });
-
-  factory _Offer.fromJson(Map<String, dynamic> json) => _Offer(
-    title: _text(json['title']),
-    source: _text(json['source']),
-    platforms: _text(json['platforms']),
-    url: _text(json['url']),
-    endsAt: _text(json['endsAt']),
-  );
-
-  final String title;
-  final String source;
-  final String platforms;
-  final String url;
-  final String endsAt;
-
-  String get dedupKey {
-    final store = platforms.toLowerCase();
-    final storefront = [
-      'epic',
-      'steam',
-      'gog',
-    ].where(store.contains).firstOrNull;
-    if (storefront == null) return url;
-    final name = title
-        .replaceAll(
-          RegExp(r'\((?:Epic Games|Steam|GOG)[^)]*\)', caseSensitive: false),
-          '',
-        )
-        .replaceFirst(RegExp(r'\s+giveaway$', caseSensitive: false), '')
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), '');
-    return name.isEmpty ? url : '$storefront:$name';
-  }
-
-  bool matches(String platform, String keyword, DateTime now) {
-    if (url.isEmpty || !title.toLowerCase().contains(keyword)) return false;
-    final end = DateTime.tryParse(endsAt);
-    if (end != null) {
-      if (source == 'Epic Games' && !now.isBefore(end)) return false;
-      // GamerPower does not include a zone. Allow a day before declaring
-      // a cached listing expired on that evidence alone.
-      if (source == 'GamerPower' &&
-          !now.isBefore(end.add(const Duration(days: 1)))) {
-        return false;
-      }
-    }
-    final labels = platforms.toLowerCase();
-    return switch (platform) {
-      'mobile' => labels.contains('android') || labels.contains('ios'),
-      'pc' => RegExp(
-        r'\bpc\b|steam|epic|\bgog\b|drm-free|itch',
-      ).hasMatch(labels),
-      'epic' || 'steam' || 'gog' => labels.contains(platform),
-      _ => true,
-    };
-  }
-
-  String display() {
-    final end = DateTime.tryParse(endsAt);
-    final deadline = end == null
-        ? '未注明'
-        : source == 'Epic Games'
-        ? end.toUtc().toIso8601String()
-        : '$endsAt（来源未注明时区）';
-    final obtain = source == 'Epic Games' ? '限时零元领取' : '免费活动，领取条件以来源为准';
-    final urlLabel = source == 'Epic Games' ? 'Epic 商店链接' : 'GamerPower 活动链接';
-    final plainTitle = title.replaceAll(RegExp(r'\s+'), ' ');
-    return '$plainTitle · $platforms\n获取方式：$obtain\n截止：$deadline\n$urlLabel：$url';
-  }
-
-  Map<String, String> toJson() => {
-    'title': title,
-    'source': source,
-    'platforms': platforms,
-    'url': url,
-    'endsAt': endsAt,
-  };
 }

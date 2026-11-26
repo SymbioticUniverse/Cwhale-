@@ -1,17 +1,23 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app_theme.dart';
 import 'chat_screen.dart';
-import 'generation_protection.dart';
 import 'local_store.dart';
 import 'onboarding_flow_page.dart';
 import 'resource_radar.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  GenerationProtection.initialize();
+  LicenseRegistry.addLicense(() async* {
+    final license = await rootBundle.loadString(
+      'assets/resource_radar/LICENSE',
+    );
+    yield LicenseEntryWithLineBreaks(['Freebie Radar source catalog'], license);
+  });
   runApp(const CwhaleApp());
 }
 
@@ -104,7 +110,8 @@ class _StartupGate extends StatefulWidget {
   State<_StartupGate> createState() => _StartupGateState();
 }
 
-class _StartupGateState extends State<_StartupGate> with WidgetsBindingObserver {
+class _StartupGateState extends State<_StartupGate>
+    with WidgetsBindingObserver {
   final _store = LocalStore();
   bool? _showOnboarding;
 
@@ -112,13 +119,17 @@ class _StartupGateState extends State<_StartupGate> with WidgetsBindingObserver 
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    ResourceRadar.instance.refresh();
     _resolveStartup();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(ResourceRadar.instance.refresh());
+    });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) ResourceRadar.instance.refresh();
+    if (state == AppLifecycleState.resumed) {
+      unawaited(ResourceRadar.instance.refresh());
+    }
   }
 
   @override

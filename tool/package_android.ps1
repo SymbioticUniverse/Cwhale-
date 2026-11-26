@@ -96,11 +96,11 @@ try {
         [System.IO.File]::WriteAllText($versionSourcePath, $versionSourceUpdated, $pubspecUtf8)
     }
 
+    # Let Flutter generate the Android plugin registrant, including the JNI plugin.
     $buildArguments = @(
         'build',
         'apk',
         '--release',
-        '--no-pub',
         '--build-name',
         $versionName,
         '--build-number',
