@@ -9,16 +9,19 @@ class _MessageMarkdown extends StatefulWidget {
   const _MessageMarkdown({
     required String this.source,
     required this.onOpenLink,
+    this.desktop = false,
   }) : block = null;
 
   const _MessageMarkdown.block({
     required _MarkdownBlock this.block,
     required this.onOpenLink,
+    this.desktop = false,
   }) : source = null;
 
   final String? source;
   final _MarkdownBlock? block;
   final ValueChanged<String>? onOpenLink;
+  final bool desktop;
 
   @override
   State<_MessageMarkdown> createState() => _MessageMarkdownState();
@@ -29,6 +32,7 @@ class _MessageMarkdownState extends State<_MessageMarkdown> {
   String? _renderedSource;
   _MarkdownBlock? _renderedBlock;
   Brightness? _renderedBrightness;
+  bool? _renderedDesktop;
 
   @override
   Widget build(BuildContext context) {
@@ -36,14 +40,20 @@ class _MessageMarkdownState extends State<_MessageMarkdown> {
     if (_rendered != null &&
         _renderedSource == widget.source &&
         identical(_renderedBlock, widget.block) &&
-        brightness == _renderedBrightness) {
+        brightness == _renderedBrightness &&
+        widget.desktop == _renderedDesktop) {
       return _rendered!;
     }
     _disposeLinkRecognizers();
-    final style = TextStyle(color: _ink, fontSize: 15, height: 1.55);
+    final style = TextStyle(
+      color: _ink,
+      fontSize: widget.desktop ? 16 : 15,
+      height: widget.desktop ? 1.65 : 1.55,
+    );
     _renderedSource = widget.source;
     _renderedBlock = widget.block;
     _renderedBrightness = brightness;
+    _renderedDesktop = widget.desktop;
     final block = widget.block;
     if (block != null) return _rendered = block(this, style);
     return _rendered = SelectionArea(

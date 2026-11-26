@@ -21,6 +21,7 @@ import 'direct_model_client.dart';
 import 'deepseek_chat_import_page.dart';
 import 'document_memory.dart';
 import 'document_processor.dart';
+import 'desktop_workspace.dart';
 import 'generation_protection.dart';
 import 'github_update_service.dart';
 import 'humanizer_skill.dart';
@@ -366,6 +367,66 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _checkForUpdatesAutomatically() async {
+    if (!Platform.isWindows ||
+        !mounted ||
+        !await GitHubUpdateService.shouldCheckAutomatically()) {
+      return;
+    }
+    try {
+      final release = await GitHubUpdateService.fetchLatestWindowsRelease();
+      await GitHubUpdateService.recordAutomaticCheck();
+      if (!mounted || !release.isNewerThan(appVersion)) return;
+      final shouldOpen = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('发现新版本 ${release.version}'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('当前版本：$appVersion'),
+                  const SizedBox(height: 8),
+                  Text('安装包：${release.assetName}'),
+                  if (release.notes.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Text(
+                      '更新说明',
+                      style: TextStyle(
+                        color: _ink,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(release.notes, style: TextStyle(color: _muted)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('稍后'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('打开 GitHub 下载页'),
+            ),
+          ],
+        ),
+      );
+      if (shouldOpen == true && mounted) {
+        await _openExternalUrl(release.releaseUrl);
+      }
+    } catch (_) {
+      // Startup checks stay quiet when GitHub or the network is unavailable.
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -373,6 +434,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _accountService.addListener(_onAccountChanged);
     _restoreAccountSession();
     _restore();
+    if (Platform.isWindows) {
+      unawaited(
+        Future<void>.delayed(
+          const Duration(seconds: 3),
+          _checkForUpdatesAutomatically,
+        ),
+      );
+    }
   }
 
   Future<void> _restoreAccountSession() async {
@@ -5437,14 +5506,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
                     value: thread.executionMode == 'server',
-                    title: const Text('本窗口使用服务器代管'),
+                    title: Text(
+                      '本窗口使用服务器代管',
+                      style: TextStyle(
+                        color: _ink,
+                        fontSize: CwhaleTheme.desktopFontSize(14),
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
                     subtitle: Text(
                       profile.isServerGifted
                           ? '获赠模型固定走服务器代管；本窗口内容会发送给模型服务商'
                           : thread.executionMode == 'server'
                           ? '已登录；本窗口单独排队，其他窗口的模型与任务不变'
                           : '默认本机直连；启用代管需要登录并确认数据发送范围',
-                      style: TextStyle(fontSize: 12, color: _muted),
+                      style: TextStyle(
+                        fontSize: CwhaleTheme.desktopFontSize(12),
+                        color: _muted,
+                        fontWeight: FontWeight.w400,
+                      ),
                     ),
                     onChanged: profile.isServerGifted || _isThreadBusy(thread)
                         ? null
@@ -5466,7 +5546,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     thread?.storySimulatorEnabled == true
                         ? '剧情模式优先使用上一段全文和更早剧情梗概。'
                         : '默认最多保留最近 64 轮原文。压缩时较早内容与较新内容按 5:3 分割。',
-                    style: TextStyle(fontSize: 12, color: _muted),
+                    style: TextStyle(
+                      fontSize: CwhaleTheme.desktopFontSize(12),
+                      color: _muted,
+                      fontWeight: FontWeight.w400,
+                    ),
                   ),
                 ),
                 const Divider(),
@@ -5484,7 +5568,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
                     value: thread.aggressiveHistoryEnabled,
-                    title: const Text('32K 激进模式'),
+                    title: Text(
+                      '32K 激进模式',
+                      style: TextStyle(
+                        color: _ink,
+                        fontSize: CwhaleTheme.desktopFontSize(14),
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
                     subtitle: const Text('仅影响本会话。开启后限制历史正文，长对话可能省略更多细节。'),
                     onChanged: _isThreadBusy(thread)
                         ? null
@@ -5501,7 +5592,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
                     value: enabled,
-                    title: const Text('达到上限时自动压缩（本会话）'),
+                    title: Text(
+                      '达到上限时自动压缩（本会话）',
+                      style: TextStyle(
+                        color: _ink,
+                        fontSize: CwhaleTheme.desktopFontSize(14),
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
                     subtitle: Text(
                       thread.autoCompressOverride == null
                           ? '继承 ${profile.displayName} 档案设置'
@@ -5966,7 +6064,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final hasModelKey =
         requestSettings.apiKey.trim().isNotEmpty ||
         requestSettings.serverEntitlementId.trim().isNotEmpty;
-    final desktopLayout = MediaQuery.sizeOf(context).width >= 980;
+    final windowWidth = MediaQuery.sizeOf(context).width;
+    final desktopLayout = windowWidth >= 900;
     return Scaffold(
       backgroundColor: _paper,
       resizeToAvoidBottomInset: true,
@@ -5980,31 +6079,33 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               desktop: false,
             ),
       body: desktopLayout
-          ? Row(
-              children: [
-                _buildDrawer(asSidebar: true),
-                Expanded(
-                  child: Column(
-                    children: [
-                      _buildChatAppBar(
-                        thread: thread,
-                        profileId: profileId,
-                        activeProfile: activeProfile,
-                        desktop: true,
-                      ),
-                      Expanded(
-                        child: _buildChatBody(
-                          thread: thread,
-                          hasModelKey: hasModelKey,
-                          contextUsage: contextUsage,
-                          requestSettings: requestSettings,
-                          activeProfile: activeProfile,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+          ? CwhaleDesktopWorkspace(
+              conversationSidebar: _buildDrawer(asSidebar: true),
+              titleBar: _buildDesktopTitleBar(
+                thread: thread,
+                profileId: profileId,
+                activeProfile: activeProfile,
+              ),
+              content: _buildDesktopChatBody(
+                thread: thread,
+                hasModelKey: hasModelKey,
+                contextUsage: contextUsage,
+                requestSettings: requestSettings,
+                activeProfile: activeProfile,
+              ),
+              inspector: windowWidth >= 1540
+                  ? _buildDesktopInspector(
+                      thread: thread,
+                      activeProfile: activeProfile,
+                      requestSettings: requestSettings,
+                      contextUsage: contextUsage,
+                      hasModelKey: hasModelKey,
+                    )
+                  : null,
+              onNotifications: () => _openNotifications(fromDrawer: true),
+              onAccount: _openAccountAuthFromDrawer,
+              onSettings: _openSettings,
+              accountLabel: _signedInUser?.label ?? '本地模式 · 登录或注册',
             )
           : _buildChatBody(
               thread: thread,
@@ -6087,6 +6188,360 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       const SizedBox(width: 4),
     ],
   );
+
+  Widget _buildDesktopTitleBar({
+    required ChatThread? thread,
+    required String profileId,
+    required ApiProfile activeProfile,
+  }) {
+    final title = (thread?.messageCount ?? 0) > 0 ? thread!.title : '新对话';
+    final subtitle =
+        isGiftedProfileId(profileId) && !_settings.hasApiProfile(profileId)
+        ? '获赠模型 · 待同步或已失效'
+        : '${activeProfile.displayProviderName}  /  ${activeProfile.displayModelName}';
+
+    return Container(
+      height: 76,
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      decoration: BoxDecoration(
+        color: _surface,
+        border: Border(bottom: BorderSide(color: _line)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: _ink,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: _muted, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 18),
+          OutlinedButton.icon(
+            onPressed: _openProfilePicker,
+            icon: const Icon(Icons.smart_toy_outlined, size: 17),
+            label: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 220),
+              child: Text(
+                activeProfile.displayName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _ink,
+              side: BorderSide(color: _line),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: '新对话',
+            onPressed: _newChat,
+            icon: const Icon(Icons.add_comment_outlined),
+          ),
+          PopupMenuButton<String>(
+            tooltip: '对话导航',
+            onSelected: (value) {
+              if (value == 'top') _jumpToTop();
+              if (value == 'previous') _jumpToPreviousMessage();
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'top', child: Text('跳转到顶部')),
+              PopupMenuItem(value: 'previous', child: Text('定位到上一条消息')),
+            ],
+            icon: const Icon(Icons.more_horiz_rounded),
+          ),
+          IconButton(
+            tooltip: '模型与应用设置',
+            onPressed: _openSettings,
+            icon: const Icon(Icons.tune_rounded),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDesktopChatBody({
+    required ChatThread? thread,
+    required bool hasModelKey,
+    required ({int tokens, int percent, int messages}) contextUsage,
+    required ModelSettings requestSettings,
+    required ApiProfile activeProfile,
+  }) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    final isEmpty = thread == null || thread.messageCount == 0;
+
+    return ColoredBox(
+      color: CwhaleTheme.isDark
+          ? const Color(0xff111315)
+          : const Color(0xfff4f6f8),
+      child: Column(
+        children: [
+          Expanded(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1160),
+                child: SizedBox.expand(
+                  child: isEmpty
+                      ? _DesktopWelcome(
+                          hasModelKey: hasModelKey,
+                          activeProfile: activeProfile,
+                          onOpenSettings: _openSettings,
+                          onSuggestion: _send,
+                        )
+                      : _messageList(thread, desktop: true),
+                ),
+              ),
+            ),
+          ),
+          if (_threadActivity(thread).isNotEmpty)
+            Align(
+              alignment: Alignment.center,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1080),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(28, 0, 28, 8),
+                  child: Row(
+                    children: [
+                      const SizedBox(
+                        width: 15,
+                        height: 15,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _threadActivity(thread),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: _muted, fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1100),
+              child: _Composer(
+                desktop: true,
+                controller: _draft,
+                sending: _isThreadBusy(thread),
+                onSend: () => _send(),
+                onPickAttachment: _showAttachmentMenu,
+                attachments: _pendingAttachments,
+                onRemoveAttachment: (index) => setState(() {
+                  if (index >= 0 && index < _pendingAttachments.length) {
+                    _pendingAttachments.removeAt(index);
+                  }
+                  if (_pendingAttachments.isEmpty) {
+                    _pendingDocumentId = null;
+                    _pendingDocumentName = null;
+                  }
+                  if (thread != null) _stashComposerDraft(thread.id);
+                }),
+                contextPercent: contextUsage.percent,
+                contextTokens: contextUsage.tokens,
+                contextLimitTokens: requestSettings.contextWindowTokens,
+                onOpenTokenDetails: _showTokenDetails,
+                onOpenModelPicker: _openProfilePicker,
+                activeProfile: activeProfile,
+                searchEnabled:
+                    hasModelKey &&
+                    _searchEnabled &&
+                    thread?.storySimulatorEnabled != true,
+                storySimulatorEnabled: thread?.storySimulatorEnabled ?? false,
+                onSearchChanged:
+                    hasModelKey && thread?.storySimulatorEnabled != true
+                    ? _toggleSearch
+                    : null,
+                functionMenu: _composerMenu(
+                  hasModelKey: hasModelKey,
+                  profile: activeProfile,
+                  canCompress:
+                      thread != null &&
+                      thread.messageCount - thread.summaryCursor >= 3,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDesktopInspector({
+    required ChatThread? thread,
+    required ApiProfile activeProfile,
+    required ModelSettings requestSettings,
+    required ({int tokens, int percent, int messages}) contextUsage,
+    required bool hasModelKey,
+  }) {
+    final contextColor = contextUsage.percent >= 90
+        ? Colors.redAccent
+        : contextUsage.percent >= 75
+        ? Colors.orangeAccent
+        : _green;
+    return SizedBox(
+      width: 286,
+      child: Container(
+        decoration: BoxDecoration(
+          color: _surface,
+          border: Border(left: BorderSide(color: _line)),
+        ),
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(18, 22, 18, 24),
+            children: [
+              Text(
+                '本窗口',
+                style: TextStyle(
+                  color: _ink,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 18),
+              _DesktopInfoCard(
+                icon: Icons.smart_toy_outlined,
+                title: '当前模型',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      activeProfile.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: _ink,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      activeProfile.displayModelName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: _muted, fontSize: 13),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        onPressed: _openProfilePicker,
+                        child: const Text('切换模型'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _DesktopInfoCard(
+                icon: Icons.memory_outlined,
+                title: '上下文使用',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                          '${contextUsage.percent}%',
+                          style: TextStyle(
+                            color: contextColor,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '${contextUsage.messages} 条消息',
+                          style: TextStyle(color: _muted, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: LinearProgressIndicator(
+                        minHeight: 7,
+                        value: (contextUsage.percent / 100).clamp(0.0, 1.0),
+                        color: contextColor,
+                        backgroundColor: CwhaleTheme.raisedSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${_formatDesktopTokenCount(contextUsage.tokens)} / ${_formatDesktopTokenCount(requestSettings.contextWindowTokens)} tokens',
+                      style: TextStyle(color: _muted, fontSize: 12),
+                    ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton(
+                        onPressed: _showTokenDetails,
+                        child: const Text('查看详情'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _DesktopInfoCard(
+                icon: thread?.executionMode == 'server'
+                    ? Icons.cloud_outlined
+                    : Icons.devices_outlined,
+                title: '请求方式',
+                child: Text(
+                  thread?.executionMode == 'server' ? '服务器代管' : '本机直连模型服务商',
+                  style: TextStyle(color: _ink, fontSize: 14),
+                ),
+              ),
+              if (!hasModelKey) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _openSettings,
+                    icon: const Icon(Icons.settings_outlined),
+                    label: const Text('连接模型'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildChatBody({
     required ChatThread? thread,
@@ -6266,7 +6721,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return true;
   }
 
-  Widget _messageList(ChatThread thread) {
+  Widget _messageList(ChatThread thread, {bool desktop = false}) {
     final rows = _transcriptRows(thread);
     final indexes = {
       for (var index = 0; index < rows.length; index++) rows[index].key: index,
@@ -6305,7 +6760,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         children: [
           Positioned.fill(
             child: SelectionArea(
-              child: _transcriptScrollView(thread, rows, indexes),
+              child: _transcriptScrollView(
+                thread,
+                rows,
+                indexes,
+                desktop: desktop,
+              ),
             ),
           ),
           Positioned(
@@ -6335,8 +6795,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Widget _transcriptScrollView(
     ChatThread thread,
     List<_TranscriptRow> rows,
-    Map<_TranscriptKey, int> indexes,
-  ) {
+    Map<_TranscriptKey, int> indexes, {
+    required bool desktop,
+  }) {
+    final horizontalInset = desktop ? 40.0 : 16.0;
     const centerKey = ValueKey('transcript-center');
     final pivot = _transcriptPivots[thread.id];
     final pivotIndex = pivot == null ? null : indexes[pivot.row];
@@ -6344,7 +6806,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
     Widget buildRow(BuildContext context, int index) {
       final row = rows[index];
-      final content = _buildTranscriptRow(context, thread, row);
+      final content = _buildTranscriptRow(
+        context,
+        thread,
+        row,
+        desktop: desktop,
+      );
       return KeyedSubtree(
         key: ValueKey<_TranscriptKey>(row.key),
         child: KeyedSubtree(
@@ -6370,7 +6837,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       slivers: [
         if (center > 0)
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            padding: EdgeInsets.fromLTRB(
+              horizontalInset,
+              0,
+              horizontalInset,
+              24,
+            ),
             sliver: SliverList(
               delegate: SliverChildBuilderDelegate(
                 (context, index) => buildRow(context, center - 1 - index),
@@ -6388,7 +6860,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           ),
         SliverPadding(
           key: centerKey,
-          padding: EdgeInsets.fromLTRB(16, 14, 16, center == 0 ? 24 : 0),
+          padding: EdgeInsets.fromLTRB(
+            horizontalInset,
+            desktop ? 24 : 14,
+            horizontalInset,
+            center == 0 ? 24 : 0,
+          ),
           sliver: SliverList(
             delegate: SliverChildBuilderDelegate(
               (context, index) => buildRow(context, index + center),
@@ -6418,25 +6895,31 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Widget _buildTranscriptRow(
     BuildContext context,
     ChatThread thread,
-    _TranscriptRow row,
-  ) {
+    _TranscriptRow row, {
+    required bool desktop,
+  }) {
     final message = row.message;
     final index = row.messageIndex;
     final reply = _liveReplies[thread.id];
     if (row.streamText case final text?) {
-      return _StreamingReplyRow(text: text, first: row.partIndex == 0);
+      return _StreamingReplyRow(
+        text: text,
+        first: row.partIndex == 0,
+        desktop: desktop,
+      );
     }
     if (row.partIndex == -1) {
       if (reply == null || reply.messageId != message.id) {
         return const SizedBox.shrink();
       }
-      return _StreamingTail(reply: reply);
+      return _StreamingTail(reply: reply, desktop: desktop);
     }
     if (row.part == _MessagePart.middle) {
       return _MessageBubble(
         message: message,
         part: row.part,
         markdown: row.markdown,
+        desktop: desktop,
         onOpenLink: _openExternalUrl,
       );
     }
@@ -6444,6 +6927,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       message: message,
       part: row.part,
       markdown: row.markdown,
+      desktop: desktop,
       onCopy: () => _copyMessage(message),
       onAddToMemory: () => _toggleMessageWindowMemory(thread, message),
       isInWindowMemory: thread.windowMemories.any(
@@ -6531,7 +7015,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _scrollToBottom(thread.id);
   }
 
-  bool get _usesDesktopSidebar => MediaQuery.sizeOf(context).width >= 980;
+  bool get _usesDesktopSidebar => MediaQuery.sizeOf(context).width >= 900;
 
   void _dismissDrawerIfNeeded() {
     if (!_usesDesktopSidebar) Navigator.of(context).pop();
@@ -6558,6 +7042,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             () => [],
           )
           .add(thread);
+    }
+    if (asSidebar) {
+      return _buildDesktopConversationSidebar(
+        query: query,
+        visibleThreads: visible,
+        groups: groups,
+      );
     }
 
     final drawerContent = SafeArea(
@@ -6843,6 +7334,299 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       child: drawerContent,
     );
   }
+
+  Widget _buildDesktopConversationSidebar({
+    required String query,
+    required List<ChatThread> visibleThreads,
+    required Map<String, List<ChatThread>> groups,
+  }) => SizedBox(
+    width: 304,
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        color: CwhaleTheme.isDark
+            ? const Color(0xff1a1b1e)
+            : const Color(0xfff8f9fb),
+        border: Border(right: BorderSide(color: _line)),
+      ),
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(22, 22, 18, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '工作区',
+                          style: TextStyle(
+                            color: _muted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '对话',
+                          style: TextStyle(
+                            color: _ink,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Tooltip(
+                    message: '新对话',
+                    child: FilledButton.tonalIcon(
+                      onPressed: _newChat,
+                      icon: const Icon(Icons.add_rounded, size: 18),
+                      label: const Text('新建'),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 11,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
+              child: TextField(
+                controller: _drawerSearch,
+                onChanged: _onDrawerSearchChanged,
+                style: TextStyle(color: _ink, fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: '搜索对话',
+                  prefixIcon: const Icon(Icons.search_rounded, size: 19),
+                  suffixIcon: query.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: '清除搜索',
+                          onPressed: () {
+                            _drawerSearch.clear();
+                            _onDrawerSearchChanged('');
+                          },
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                        ),
+                  filled: true,
+                  fillColor: CwhaleTheme.isDark
+                      ? const Color(0xff232428)
+                      : const Color(0xffeef1f5),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 13),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: _green, width: 1.2),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+              child: Material(
+                color: CwhaleTheme.isDark
+                    ? const Color(0xff232428)
+                    : Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => _openNotifications(),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 13,
+                      vertical: 11,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.notifications_none_rounded,
+                          color: _green,
+                          size: 19,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            '通知与活动',
+                            style: TextStyle(
+                              color: _ink,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        Icon(Icons.chevron_right_rounded, color: _muted),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 7),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(22, 8, 18, 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      query.isEmpty ? '最近对话' : '搜索结果',
+                      style: TextStyle(
+                        color: _muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.35,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '${visibleThreads.length}',
+                    style: TextStyle(color: _muted, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: visibleThreads.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Text(
+                          _threads.isEmpty ? '还没有对话' : '没有找到匹配的对话',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: _muted, fontSize: 14),
+                        ),
+                      ),
+                    )
+                  : ListView(
+                      padding: const EdgeInsets.fromLTRB(12, 2, 12, 14),
+                      children: [
+                        for (final group in groups.entries) ...[
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(10, 14, 10, 7),
+                            child: Text(
+                              group.key,
+                              style: TextStyle(
+                                color: _muted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          for (final item in group.value)
+                            _DesktopThreadTile(
+                              thread: item,
+                              selected: item.id == _active?.id,
+                              onTap: () => _selectThread(item),
+                              onRename: () => _renameThread(item),
+                              onDelete: () => _deleteThread(item),
+                            ),
+                        ],
+                      ],
+                    ),
+            ),
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: _line)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Material(
+                      color: Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: _openAccountAuthFromDrawer,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 18,
+                                backgroundColor: CwhaleTheme.selectedSurface,
+                                child: Icon(
+                                  _signedInUser == null
+                                      ? Icons.storage_rounded
+                                      : Icons.person_rounded,
+                                  color: _green,
+                                  size: 18,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _signedInUser?.label ?? '本地模式',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: _ink,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      _signedInUser == null
+                                          ? '登录 / 注册'
+                                          : '聊天记录保存在本机',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: _muted,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '清空本机对话',
+                    onPressed: _deleteAllChats,
+                    icon: Icon(
+                      Icons.delete_outline_rounded,
+                      color: _muted,
+                      size: 20,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 String _drawerGroupLabel(DateTime value) {
@@ -6854,6 +7638,417 @@ String _drawerGroupLabel(DateTime value) {
   if (dayGap == 1) return '昨天';
   if (now.year == value.year) return '${value.month}月';
   return '${value.year}年${value.month}月';
+}
+
+String _formatDesktopTokenCount(int value) {
+  final absolute = value.abs();
+  if (absolute < 1000) return '$value';
+  final divisor = absolute >= 1000000 ? 1000000 : 1000;
+  final unit = divisor == 1000000 ? 'M' : 'K';
+  final scaled = value / divisor;
+  final decimals = scaled.abs() >= 100 ? 0 : 1;
+  final formatted = scaled
+      .toStringAsFixed(decimals)
+      .replaceFirst(RegExp(r'\.0$'), '');
+  return '$formatted$unit';
+}
+
+class _DesktopThreadTile extends StatelessWidget {
+  const _DesktopThreadTile({
+    required this.thread,
+    required this.selected,
+    required this.onTap,
+    required this.onRename,
+    required this.onDelete,
+  });
+
+  final ChatThread thread;
+  final bool selected;
+  final VoidCallback onTap;
+  final VoidCallback onRename;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 3),
+    child: Material(
+      color: selected ? CwhaleTheme.selectedSurface : Colors.transparent,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(11, 10, 5, 10),
+          child: Row(
+            children: [
+              Container(
+                width: 3,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: selected ? CwhaleTheme.accent : Colors.transparent,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Icon(
+                Icons.forum_outlined,
+                size: 17,
+                color: selected ? CwhaleTheme.accent : CwhaleTheme.muted,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  thread.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: CwhaleTheme.ink,
+                    fontSize: 14,
+                    height: 1.35,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
+              ),
+              PopupMenuButton<_ThreadAction>(
+                tooltip: '对话选项',
+                iconSize: 18,
+                padding: EdgeInsets.zero,
+                icon: Icon(Icons.more_horiz_rounded, color: CwhaleTheme.muted),
+                onSelected: (action) {
+                  switch (action) {
+                    case _ThreadAction.rename:
+                      onRename();
+                    case _ThreadAction.delete:
+                      onDelete();
+                  }
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: _ThreadAction.rename,
+                    child: Text('修改名称'),
+                  ),
+                  PopupMenuItem(
+                    value: _ThreadAction.delete,
+                    child: Text('删除对话'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _DesktopWelcome extends StatelessWidget {
+  const _DesktopWelcome({
+    required this.hasModelKey,
+    required this.activeProfile,
+    required this.onOpenSettings,
+    required this.onSuggestion,
+  });
+
+  final bool hasModelKey;
+  final ApiProfile activeProfile;
+  final VoidCallback onOpenSettings;
+  final ValueChanged<String> onSuggestion;
+
+  static const _suggestions = <(String, String, IconData)>[
+    ('整理思路', '把一个想法拆解清楚', Icons.lightbulb_outline_rounded),
+    ('写点东西', '从提纲开始起草', Icons.edit_note_rounded),
+    ('学个新知', '用简单的话解释概念', Icons.school_outlined),
+  ];
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final compact = constraints.maxWidth < 860;
+      final introduction = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const CwhaleBrandMark(size: 40, cornerRadius: 13),
+              const SizedBox(width: 12),
+              Text(
+                'CWHale  /  WORKSPACE',
+                style: TextStyle(
+                  color: _muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.9,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 28),
+          Text(
+            hasModelKey ? '想把什么事情\n理清楚？' : '欢迎来到\nCwhale 工作区',
+            style: TextStyle(
+              color: _ink,
+              fontSize: 34,
+              height: 1.18,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.6,
+            ),
+          ),
+          const SizedBox(height: 14),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Text(
+              '清晰的对话空间，常用操作就在手边。聊天记录保存在本机，模型由你选择。',
+              style: TextStyle(color: _muted, fontSize: 16, height: 1.65),
+            ),
+          ),
+          const SizedBox(height: 30),
+          Text(
+            '从一个方向开始',
+            style: TextStyle(
+              color: _ink,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final suggestion in _suggestions)
+                SizedBox(
+                  width: compact ? double.infinity : 205,
+                  child: Material(
+                    color: _surface,
+                    borderRadius: BorderRadius.circular(14),
+                    child: InkWell(
+                      onTap: () => onSuggestion(suggestion.$2),
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        padding: const EdgeInsets.fromLTRB(14, 13, 12, 13),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: _line),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(suggestion.$3, color: _green, size: 20),
+                            const SizedBox(width: 11),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    suggestion.$1,
+                                    style: TextStyle(
+                                      color: _ink,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    suggestion.$2,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: _muted,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      );
+
+      final modelCard = Container(
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          color: _surface,
+          border: Border.all(color: _line),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(
+                alpha: CwhaleTheme.isDark ? 0.0 : 0.035,
+              ),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  hasModelKey
+                      ? Icons.check_circle_outline_rounded
+                      : Icons.tune_rounded,
+                  color: _green,
+                  size: 20,
+                ),
+                const SizedBox(width: 9),
+                Text(
+                  hasModelKey ? '模型已连接' : '先连接一个模型',
+                  style: TextStyle(
+                    color: _ink,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              hasModelKey
+                  ? '${activeProfile.displayName}\n${activeProfile.displayModelName}'
+                  : '选择服务商、模型和 API Key，即可开始使用 Cwhale。',
+              style: TextStyle(color: _muted, fontSize: 14, height: 1.6),
+            ),
+            if (!hasModelKey) ...[
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: onOpenSettings,
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                  label: const Text('打开模型设置'),
+                ),
+              ),
+            ],
+            const SizedBox(height: 18),
+            Divider(color: _line, height: 1),
+            const SizedBox(height: 15),
+            const _DesktopWelcomeFact(
+              icon: Icons.lock_outline_rounded,
+              text: '聊天和记忆保存在本机',
+            ),
+            const SizedBox(height: 12),
+            const _DesktopWelcomeFact(
+              icon: Icons.tune_rounded,
+              text: '每个对话可单独选择模型',
+            ),
+            const SizedBox(height: 12),
+            const _DesktopWelcomeFact(
+              icon: Icons.attach_file_rounded,
+              text: '文件和工具按需使用',
+            ),
+          ],
+        ),
+      );
+
+      return SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(
+          compact ? 24 : 48,
+          42,
+          compact ? 24 : 48,
+          28,
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1080),
+            child: compact
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      introduction,
+                      const SizedBox(height: 26),
+                      modelCard,
+                    ],
+                  )
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(flex: 6, child: introduction),
+                      const SizedBox(width: 36),
+                      Expanded(
+                        flex: 4,
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 38),
+                          child: modelCard,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _DesktopWelcomeFact extends StatelessWidget {
+  const _DesktopWelcomeFact({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Icon(icon, color: _green, size: 17),
+      const SizedBox(width: 9),
+      Expanded(
+        child: Text(text, style: TextStyle(color: _muted, fontSize: 13)),
+      ),
+    ],
+  );
+}
+
+class _DesktopInfoCard extends StatelessWidget {
+  const _DesktopInfoCard({
+    required this.icon,
+    required this.title,
+    required this.child,
+  });
+
+  final IconData icon;
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(15),
+    decoration: BoxDecoration(
+      color: CwhaleTheme.isDark
+          ? const Color(0xff202124)
+          : const Color(0xfff8f9fb),
+      border: Border.all(color: CwhaleTheme.line),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, color: CwhaleTheme.accent, size: 18),
+            const SizedBox(width: 8),
+            Text(
+              title,
+              style: TextStyle(
+                color: CwhaleTheme.ink,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 13),
+        child,
+      ],
+    ),
+  );
 }
 
 class _Welcome extends StatelessWidget {
@@ -7049,6 +8244,7 @@ class _MessageBubble extends StatefulWidget {
     required this.message,
     this.part = _MessagePart.whole,
     this.markdown,
+    this.desktop = false,
     this.onCopy,
     this.onAddToMemory,
     this.isInWindowMemory = false,
@@ -7067,6 +8263,7 @@ class _MessageBubble extends StatefulWidget {
   final ChatMessage message;
   final _MessagePart part;
   final _MarkdownBlock? markdown;
+  final bool desktop;
   final VoidCallback? onCopy;
   final VoidCallback? onAddToMemory;
   final bool isInWindowMemory;
@@ -7348,8 +8545,10 @@ class _MessageBubbleState extends State<_MessageBubble> {
         message.fileAttachments.isNotEmpty ||
         message.imageAttachments.isNotEmpty;
     final replyStats = last && !isUser ? _replyStats(message) : '';
-    final verticalPadding = isUser ? 12.0 : 4.0;
-    const bubbleRadius = Radius.circular(20);
+    final verticalPadding = widget.desktop
+        ? (isUser ? 15.0 : 5.0)
+        : (isUser ? 12.0 : 4.0);
+    final bubbleRadius = Radius.circular(widget.desktop ? 18 : 20);
     return Padding(
       padding: EdgeInsets.only(bottom: last ? 17 : 0),
       child: Row(
@@ -7373,12 +8572,14 @@ class _MessageBubbleState extends State<_MessageBubble> {
             const SizedBox(width: 38),
           Flexible(
             child: Container(
-              constraints: const BoxConstraints(maxWidth: 650),
+              constraints: BoxConstraints(
+                maxWidth: widget.desktop ? (isUser ? 760 : 880) : 650,
+              ),
               width: isUser && !whole ? double.infinity : null,
               padding: EdgeInsets.fromLTRB(
-                isUser ? 15 : 2,
+                isUser ? (widget.desktop ? 19 : 15) : 2,
                 first ? verticalPadding : 0,
-                isUser ? 15 : 2,
+                isUser ? (widget.desktop ? 19 : 15) : 2,
                 last ? verticalPadding : 0,
               ),
               decoration: BoxDecoration(
@@ -7447,12 +8648,14 @@ class _MessageBubbleState extends State<_MessageBubble> {
                     _MessageMarkdown.block(
                       block: block,
                       onOpenLink: widget.onOpenLink,
+                      desktop: widget.desktop,
                     )
                   else if (whole &&
                       (message.displayContent ?? message.content).isNotEmpty)
                     _MessageMarkdown(
                       source: message.displayContent ?? message.content,
                       onOpenLink: widget.onOpenLink,
+                      desktop: widget.desktop,
                     ),
                   if (last) ...[
                     for (final image in message.imageAttachments)
@@ -7570,7 +8773,7 @@ class _MessageBubbleState extends State<_MessageBubble> {
                             replyStats,
                             style: TextStyle(
                               color: _muted,
-                              fontSize: 11,
+                              fontSize: widget.desktop ? 12 : 11,
                               fontFamily:
                                   defaultTargetPlatform ==
                                       TargetPlatform.windows
@@ -7752,9 +8955,10 @@ class _LiveReply extends ChangeNotifier {
 }
 
 class _StreamingTail extends StatelessWidget {
-  const _StreamingTail({required this.reply});
+  const _StreamingTail({required this.reply, this.desktop = false});
 
   final _LiveReply reply;
+  final bool desktop;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -7767,6 +8971,7 @@ class _StreamingTail extends StatelessWidget {
         text: reply.tail,
         first: reply.blocks.isEmpty,
         last: true,
+        desktop: desktop,
       );
     },
   );
@@ -7777,11 +8982,13 @@ class _StreamingReplyRow extends StatelessWidget {
     required this.text,
     required this.first,
     this.last = false,
+    this.desktop = false,
   });
 
   final String text;
   final bool first;
   final bool last;
+  final bool desktop;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -7796,10 +9003,14 @@ class _StreamingReplyRow extends StatelessWidget {
           const SizedBox(width: 40),
         Flexible(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 646),
+            constraints: BoxConstraints(maxWidth: desktop ? 880 : 646),
             child: Text(
               text,
-              style: TextStyle(color: _ink, fontSize: 15, height: 1.55),
+              style: TextStyle(
+                color: _ink,
+                fontSize: desktop ? 16 : 15,
+                height: desktop ? 1.65 : 1.55,
+              ),
             ),
           ),
         ),
@@ -7830,6 +9041,7 @@ class _TypingIndicator extends StatelessWidget {
 
 class _Composer extends StatelessWidget {
   const _Composer({
+    this.desktop = false,
     required this.controller,
     required this.sending,
     required this.onSend,
@@ -7848,6 +9060,7 @@ class _Composer extends StatelessWidget {
     required this.attachments,
   });
 
+  final bool desktop;
   final TextEditingController controller;
   final bool sending;
   final VoidCallback onSend;
@@ -7917,11 +9130,11 @@ class _Composer extends StatelessWidget {
   Widget build(BuildContext context) => SafeArea(
     top: false,
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(12, 3, 12, 6),
+      padding: EdgeInsets.fromLTRB(desktop ? 24 : 12, 3, desktop ? 24 : 12, 8),
       child: Center(
         heightFactor: 1,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
+          constraints: BoxConstraints(maxWidth: desktop ? 960 : 720),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -8096,14 +9309,15 @@ class _Composer extends StatelessWidget {
                             controller: controller,
                             minLines: 1,
                             maxLines: 5,
+                            style: TextStyle(fontSize: desktop ? 16 : 14),
                             textCapitalization: TextCapitalization.sentences,
                             textInputAction: TextInputAction.send,
                             onSubmitted: (_) => onSend(),
                             decoration: InputDecoration(
                               hintText: '发消息给Cwhale…',
                               filled: false,
-                              contentPadding: const EdgeInsets.symmetric(
-                                vertical: 6,
+                              contentPadding: EdgeInsets.symmetric(
+                                vertical: desktop ? 10 : 6,
                               ),
                               border: InputBorder.none,
                               enabledBorder: InputBorder.none,
@@ -8264,7 +9478,8 @@ class _TokenRow extends StatelessWidget {
             label,
             style: TextStyle(
               color: bold ? _ink : _muted,
-              fontWeight: bold ? FontWeight.w700 : FontWeight.normal,
+              fontSize: CwhaleTheme.desktopFontSize(14),
+              fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
             ),
           ),
         ),
@@ -8272,7 +9487,8 @@ class _TokenRow extends StatelessWidget {
           _format(value),
           style: TextStyle(
             color: bold ? _ink : _muted,
-            fontWeight: bold ? FontWeight.w700 : FontWeight.normal,
+            fontSize: CwhaleTheme.desktopFontSize(14),
+            fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
           ),
         ),
       ],
@@ -8459,6 +9675,15 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
+  static const _customFontOption = '__custom_font__';
+  static const _fontOptions = <String, String>{
+    '': '系统默认',
+    'Segoe UI': 'Segoe UI',
+    'Microsoft YaHei UI': '微软雅黑 UI',
+    'Microsoft YaHei': '微软雅黑',
+    _customFontOption: '自定义字体名称',
+  };
+
   final LocalStore _privacyStore = LocalStore();
   late List<ApiProfile> _profiles = widget.settings.apiProfiles
       .where((profile) => !profile.isServerGifted)
@@ -8477,6 +9702,16 @@ class _SettingsPageState extends State<SettingsPage> {
   );
   late bool _timestampEnabled = widget.settings.injectLocalTimestamp;
   late bool _darkThemeEnabled = widget.settings.useDarkTheme;
+  late String _desktopFontFamily = widget.settings.desktopFontFamily;
+  late String _desktopFontOption = _fontOptions.containsKey(_desktopFontFamily)
+      ? _desktopFontFamily
+      : _customFontOption;
+  late final _customFontFamilyController = TextEditingController(
+    text: _desktopFontOption == _customFontOption ? _desktopFontFamily : '',
+  );
+  late double _desktopTextScale = widget.settings.desktopTextScale
+      .clamp(0.9, 1.3)
+      .toDouble();
   bool _allowPop = false;
   bool _checkingUpdates = false;
   bool _kiloConsentSaved = false;
@@ -8489,6 +9724,37 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadKiloConsent();
     _loadCwhaleFreeUsage();
     _loadGiftedProfiles();
+  }
+
+  void _applyDesktopTypography() {
+    if (!Platform.isWindows) return;
+    CwhaleTheme.desktopTypography.value = DesktopTypographySettings(
+      fontFamily: _desktopFontFamily.trim(),
+      scale: _desktopTextScale,
+    );
+  }
+
+  void _selectDesktopFont(String? option) {
+    if (option == null) return;
+    setState(() {
+      _desktopFontOption = option;
+      if (option != _customFontOption) {
+        _desktopFontFamily = option;
+      } else {
+        _desktopFontFamily = _customFontFamilyController.text.trim();
+      }
+    });
+    _applyDesktopTypography();
+  }
+
+  void _updateCustomFontFamily(String value) {
+    setState(() => _desktopFontFamily = value.trim());
+    _applyDesktopTypography();
+  }
+
+  void _updateDesktopTextScale(double value) {
+    setState(() => _desktopTextScale = value);
+    _applyDesktopTypography();
   }
 
   Future<void> _loadGiftedProfiles() async {
@@ -8559,10 +9825,80 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<bool?> _showUpdateAvailableDialog(GitHubReleaseInfo release) =>
+      showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('发现新版本 ${release.version}'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('当前版本：$appVersion'),
+                  const SizedBox(height: 8),
+                  Text('安装包：${release.assetName}'),
+                  if (release.notes.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Text(
+                      '更新说明',
+                      style: TextStyle(
+                        color: _ink,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(release.notes, style: TextStyle(color: _muted)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('稍后'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('打开 GitHub 下载页'),
+            ),
+          ],
+        ),
+      );
+
   Future<void> _checkForUpdates() async {
     if (_checkingUpdates) return;
     setState(() => _checkingUpdates = true);
     try {
+      if (Platform.isWindows) {
+        final release = await GitHubUpdateService.fetchLatestWindowsRelease();
+        if (!mounted) return;
+        if (!release.isNewerThan(appVersion)) {
+          await showDialog<void>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('已是最新版本'),
+              content: Text('当前版本：$appVersion'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('知道了'),
+                ),
+              ],
+            ),
+          );
+          return;
+        }
+        final shouldOpen = await _showUpdateAvailableDialog(release);
+        if (shouldOpen == true && mounted) {
+          await LocalFileOpener().openUrl(release.releaseUrl);
+        }
+        return;
+      }
+
       if (!Platform.isAndroid) {
         await LocalFileOpener().openUrl(
           GitHubUpdateService.latestReleasePageUrl,
@@ -8602,7 +9938,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 children: [
                   Text('当前版本：$appVersion'),
                   const SizedBox(height: 8),
-                  Text('安装包：${release.apkName}'),
+                  Text('安装包：${release.assetName}'),
                   if (release.notes.isNotEmpty) ...[
                     const SizedBox(height: 14),
                     Text(
@@ -8633,7 +9969,7 @@ class _SettingsPageState extends State<SettingsPage> {
       );
       if (shouldDownload != true || !mounted) return;
       try {
-        await LocalFileOpener().openUrl(release.apkUrl);
+        await LocalFileOpener().openUrl(release.assetUrl);
       } catch (error) {
         if (mounted) {
           ScaffoldMessenger.of(context)
@@ -8703,6 +10039,7 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void dispose() {
     _globalSystemPrompt.dispose();
+    _customFontFamilyController.dispose();
     _accountOperations.close();
     super.dispose();
   }
@@ -8908,6 +10245,8 @@ class _SettingsPageState extends State<SettingsPage> {
       globalSystemPrompt: _globalSystemPrompt.text.trim(),
       injectLocalTimestamp: _timestampEnabled,
       useDarkTheme: _darkThemeEnabled,
+      desktopFontFamily: _desktopFontFamily.trim(),
+      desktopTextScale: _desktopTextScale,
       defaultExecutionMode: _defaultExecutionMode,
     );
   }
@@ -8938,7 +10277,7 @@ class _SettingsPageState extends State<SettingsPage> {
             'Cwhale 免费模型采用自动路由，实际模型上游可能变化。消息及回答所需上下文会发送到免费模型服务商；服务商可能按其规则处理或保留内容。全局重要记忆默认不发送。可在“隐私”设置撤销授权；撤销后普通聊天、工具、摘要与压缩请求都会停止发送，已发出的内容无法撤回。\n\n'
             '只有用户明确开启联网搜索，或明确提出搜索请求时，应用才直连公开网页。搜索词会发送到搜索来源，网页请求会发送到对应网站；搜索结果仅用于本轮模型上下文。天气查询和其他工具也由应用直连对应公开服务。\n\n'
             '自动或手动摘要由当前对话所选档案的模型生成；摘要保存在本机，原始聊天不删除。API Key 通过 Authorization: Bearer 请求头直发配置地址，不写入聊天正文、明文配置文件或安装包。\n\n'
-            '用户手动检查更新时，Android 会向 GitHub Releases 查询 APK 版本并由系统浏览器打开下载链接；Windows 和 iOS 会在系统浏览器中打开公开发行页。此过程不发送聊天、记忆、API Key 或文件。Android 安装仍由用户确认。\n\n'
+            'Windows 会在启动时每天向 GitHub Releases 查询桌面安装包版本；发现新版本后由用户选择打开下载页。Android 手动检查会查询最新含 APK 的版本并由系统浏览器打开下载链接；iOS 可打开公开发行页。版本查询不会读取或发送聊天、记忆、API Key、附件或文件。Android 安装仍由用户确认。\n\n'
             '此选项作为新对话的时间戳默认值；已存在的对话可在各自输入区单独调整。启用后，请求会附带设备本地日期、时间与时区。服务商会按其条款处理请求数据并可能计费，请查看对应服务政策。',
             style: TextStyle(height: 1.55),
           ),
@@ -9031,6 +10370,106 @@ class _SettingsPageState extends State<SettingsPage> {
                   style: TextStyle(color: _muted, fontSize: 11),
                 ),
               ),
+              if (Platform.isWindows)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.text_fields_rounded, color: _green),
+                          const SizedBox(width: 16),
+                          const Expanded(
+                            child: Text(
+                              '桌面字体',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              _customFontFamilyController.clear();
+                              setState(() {
+                                _desktopFontOption = '';
+                                _desktopFontFamily = '';
+                                _desktopTextScale = 1.0;
+                              });
+                              _applyDesktopTypography();
+                            },
+                            child: const Text('恢复默认'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 9),
+                      DropdownButtonFormField<String>(
+                        value: _desktopFontOption,
+                        decoration: const InputDecoration(
+                          labelText: '字体系列',
+                          prefixIcon: Icon(Icons.font_download_outlined),
+                        ),
+                        items: [
+                          for (final option in _fontOptions.entries)
+                            DropdownMenuItem<String>(
+                              value: option.key,
+                              child: Text(option.value),
+                            ),
+                        ],
+                        onChanged: _selectDesktopFont,
+                      ),
+                      if (_desktopFontOption == _customFontOption) ...[
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: _customFontFamilyController,
+                          onChanged: _updateCustomFontFamily,
+                          decoration: const InputDecoration(
+                            labelText: '已安装字体名称',
+                            hintText: '例如：DengXian 或等线',
+                            helperText: '输入 Windows 已安装字体的名称。',
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _surfaceRaised,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          '这是一段桌面字体预览 Cwhale',
+                          style: TextStyle(fontSize: 17, height: 1.45),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Text('字号', style: TextStyle(color: _muted)),
+                          const Spacer(),
+                          Text(
+                            '${(_desktopTextScale * 100).round()}%',
+                            style: TextStyle(color: _muted),
+                          ),
+                        ],
+                      ),
+                      Slider(
+                        value: _desktopTextScale,
+                        min: 0.9,
+                        max: 1.3,
+                        divisions: 4,
+                        label: '${(_desktopTextScale * 100).round()}%',
+                        onChanged: _updateDesktopTextScale,
+                      ),
+                      Text(
+                        '只影响 Windows 桌面界面。自定义字体需先安装到系统。',
+                        style: TextStyle(color: _muted, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
             ]),
             section('账户', [
               ListTile(
@@ -9228,12 +10667,16 @@ class _SettingsPageState extends State<SettingsPage> {
               ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                 leading: Icon(Icons.system_update_alt_rounded, color: _green),
-                title: Text(Platform.isAndroid ? '检查更新' : '查看发行版本'),
+                title: Text(
+                  Platform.isAndroid || Platform.isWindows ? '检查更新' : '查看发行版本',
+                ),
                 subtitle: Text(
                   _checkingUpdates
                       ? '正在查询 GitHub Releases…'
                       : Platform.isAndroid
                       ? '检查并下载 GitHub 上的新版本'
+                      : Platform.isWindows
+                      ? '启动时每天自动检查；也可立即手动检查'
                       : '在浏览器中查看 GitHub Release 和桌面安装包',
                   style: TextStyle(color: _muted, fontSize: 11),
                 ),

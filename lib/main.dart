@@ -18,9 +18,13 @@ class CwhaleApp extends StatelessWidget {
   const CwhaleApp({super.key});
 
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
-    valueListenable: CwhaleTheme.darkMode,
-    builder: (context, darkMode, _) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([
+      CwhaleTheme.darkMode,
+      CwhaleTheme.desktopTypography,
+    ]),
+    builder: (context, _) {
+      final darkMode = CwhaleTheme.darkMode.value;
       if (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS) {
         SystemChrome.setSystemUIOverlayStyle(
@@ -113,6 +117,10 @@ class _StartupGateState extends State<_StartupGate> {
     try {
       final settings = await _store.loadSettings();
       CwhaleTheme.darkMode.value = settings.useDarkTheme;
+      CwhaleTheme.desktopTypography.value = DesktopTypographySettings(
+        fontFamily: settings.desktopFontFamily,
+        scale: settings.desktopTextScale,
+      );
 
       var completed = await _store.hasCompletedOnboarding();
       if (!completed) {

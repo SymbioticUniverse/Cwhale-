@@ -25,7 +25,7 @@
 - 设置页二级界面可配置全局系统提示词；保存后作为 system 前缀加入每次模型请求，包括工具后续请求和摘要压缩请求。内置身份提示会在询问模型身份时回答：“我是 Cwhale，背后具体的服务商由您当前激活的 API 为准。”
 - “每次请求附带本地时间戳”在设置里手动开启，默认关闭。开启后每次模型 API 请求都包含设备本地日期、时间、时区，包括工具调用和记忆摘要请求；时间戳不保存进聊天记录。
 - 暂不含 RAG、向量库、会员系统或遥测。账号认证不读取聊天。服务器代管使用现有账号 API 的持久化任务队列：默认最多 10 个同时运行、每账号最多 2 个、最多 100 个待排队任务；任务严格绑定账号、窗口、用户消息和回复消息 ID。请求和事件在 SQLite 中用由服务端 secret 派生的 AES-GCM 密钥加密；每个模型请求完成或失败后清除排队请求与 API Key。进程重启时，未完成的上游请求标为失败而不自动重发，避免重复计费。
-- 用户手动检查更新时，Android 客户端查询 GitHub Releases 并由系统浏览器下载 APK；Windows 和 iOS 客户端会在系统浏览器打开公开发行页。此过程不发送聊天、记忆、API Key 或文件。
+- Windows 客户端启动时每天自动查询 GitHub 上最新桌面安装包；发现新版本后显示更新提示，由用户打开发行页下载安装。Android 手动检查更新时查询最新含 APK 的 GitHub Release 并由系统浏览器下载；iOS 可打开公开发行页。更新查询只发送版本检查请求，不会发送聊天、记忆、API Key 或文件。
 - 第三方开源依赖许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 - 模型设置页内提供隐私政策与数据说明；发布前需将 PRIVACY.md 的发布者和联系方式补齐，并托管为公开 HTTPS 页面。
 
@@ -262,6 +262,8 @@ flutter build windows --release
 ~~~
 
 打包脚本默认连接 Cwhale 账号服务并注入正式账号地址；要改用测试环境，可传入 `-AuthBaseUrl https://你的测试域名`。它会生成可直接运行的 ZIP；如果安装了 Inno Setup 6，也会生成每用户安装包。安装包默认写入 `%LOCALAPPDATA%\Programs\Cwhale`，不需要管理员权限。
+
+向 `main` 推送 `v主版本.次版本.修订版本` 标签会触发 GitHub Actions，构建 Windows 安装包和便携版并附加到 GitHub Release。Windows 客户端会检测最新带 Windows 安装包的发行版；Android 更新检查会继续选取最新带 APK 的发行版。
 
 ## Android APK
 

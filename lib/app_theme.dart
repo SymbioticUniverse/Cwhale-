@@ -2,10 +2,21 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+class DesktopTypographySettings {
+  const DesktopTypographySettings({this.fontFamily = '', this.scale = 1.0});
+
+  final String fontFamily;
+  final double scale;
+}
+
 class CwhaleTheme {
   CwhaleTheme._();
 
   static final ValueNotifier<bool> darkMode = ValueNotifier<bool>(false);
+  static final ValueNotifier<DesktopTypographySettings> desktopTypography =
+      ValueNotifier<DesktopTypographySettings>(
+        const DesktopTypographySettings(),
+      );
 
   static bool get isDark => darkMode.value;
   static bool get _isWindows => defaultTargetPlatform == TargetPlatform.windows;
@@ -13,11 +24,16 @@ class CwhaleTheme {
   /// A consistent Windows type scale; mobile font sizes stay unchanged.
   static double desktopFontSize(double size) {
     if (defaultTargetPlatform != TargetPlatform.windows) return size;
-    if (size <= 12) return 13;
-    if (size <= 14) return 14;
-    if (size <= 16) return 16;
-    if (size <= 18) return 18;
-    return size;
+    final normalized = size <= 12
+        ? 13.0
+        : size <= 14
+        ? 14.0
+        : size <= 16
+        ? 16.0
+        : size <= 18
+        ? 18.0
+        : size;
+    return normalized * desktopTypography.value.scale.clamp(0.9, 1.3);
   }
 
   static Color get ink =>
@@ -62,13 +78,16 @@ class CwhaleTheme {
     final muted = dark
         ? (isWindows ? const Color(0xffb6b8c0) : const Color(0xff999ba2))
         : (isWindows ? const Color(0xff555b66) : const Color(0xff70737b));
+    final customFontFamily = desktopTypography.value.fontFamily.trim();
 
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
-      fontFamily: isWindows ? 'Segoe UI' : null,
+      fontFamily: isWindows
+          ? (customFontFamily.isEmpty ? 'Microsoft YaHei UI' : customFontFamily)
+          : null,
       fontFamilyFallback: isWindows
-          ? const ['Microsoft YaHei UI', 'Microsoft YaHei']
+          ? const ['Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI']
           : null,
       visualDensity: isWindows
           ? VisualDensity.standard
@@ -130,12 +149,12 @@ class CwhaleTheme {
               iconColor: muted,
               titleTextStyle: TextStyle(
                 color: ink,
-                fontSize: isWindows ? 15 : null,
+                fontSize: isWindows ? desktopFontSize(15) : null,
                 fontWeight: FontWeight.w500,
               ),
               subtitleTextStyle: TextStyle(
                 color: muted,
-                fontSize: isWindows ? 13 : null,
+                fontSize: isWindows ? desktopFontSize(13) : null,
                 height: 1.4,
               ),
             )
@@ -150,8 +169,8 @@ class CwhaleTheme {
         surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(
           color: ink,
-          fontSize: 20,
-          fontWeight: FontWeight.w700,
+          fontSize: desktopFontSize(20),
+          fontWeight: FontWeight.w600,
         ),
         contentTextStyle: TextStyle(color: muted, height: 1.5),
       ),

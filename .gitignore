@@ -34,6 +34,9 @@ migrate_working_dir/
 /android/build/
 /android/.gradle/
 /release/*.apk
+/release/Cwhale-Setup-*.exe
+/release/Cwhale-*-windows-x64-portable.zip
+/release/Cwhale-*-windows-x64/
 /\.android-avd/
 /coverage/
 /android/key.properties

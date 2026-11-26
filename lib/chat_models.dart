@@ -780,6 +780,8 @@ class ModelSettings {
     this.injectLocalTimestamp = false,
     this.webSearchEnabled = false,
     this.useDarkTheme = false,
+    this.desktopFontFamily = '',
+    this.desktopTextScale = 1.0,
     this.contextWindowTokens = 1000000,
     this.autoCompressContext = true,
     this.autoCompressAtPercent = 80,
@@ -800,6 +802,8 @@ class ModelSettings {
   final bool injectLocalTimestamp;
   final bool webSearchEnabled;
   final bool useDarkTheme;
+  final String desktopFontFamily;
+  final double desktopTextScale;
   final int contextWindowTokens;
   final bool autoCompressContext;
   final int autoCompressAtPercent;
@@ -865,6 +869,8 @@ class ModelSettings {
     bool? injectLocalTimestamp,
     bool? webSearchEnabled,
     bool? useDarkTheme,
+    String? desktopFontFamily,
+    double? desktopTextScale,
     int? contextWindowTokens,
     bool? autoCompressContext,
     int? autoCompressAtPercent,
@@ -884,6 +890,8 @@ class ModelSettings {
     injectLocalTimestamp: injectLocalTimestamp ?? this.injectLocalTimestamp,
     webSearchEnabled: webSearchEnabled ?? this.webSearchEnabled,
     useDarkTheme: useDarkTheme ?? this.useDarkTheme,
+    desktopFontFamily: desktopFontFamily ?? this.desktopFontFamily,
+    desktopTextScale: desktopTextScale ?? this.desktopTextScale,
     contextWindowTokens: contextWindowTokens ?? this.contextWindowTokens,
     autoCompressContext: autoCompressContext ?? this.autoCompressContext,
     autoCompressAtPercent: autoCompressAtPercent ?? this.autoCompressAtPercent,
@@ -907,6 +915,8 @@ class ModelSettings {
     'injectLocalTimestamp': injectLocalTimestamp,
     'webSearchEnabled': webSearchEnabled,
     'useDarkTheme': useDarkTheme,
+    'desktopFontFamily': desktopFontFamily,
+    'desktopTextScale': desktopTextScale,
     'contextWindowTokens': contextWindowTokens,
     'autoCompressContext': autoCompressContext,
     'autoCompressAtPercent': autoCompressAtPercent,
@@ -1003,6 +1013,10 @@ class ModelSettings {
       injectLocalTimestamp: json['injectLocalTimestamp'] as bool? ?? false,
       webSearchEnabled: json['webSearchEnabled'] as bool? ?? false,
       useDarkTheme: json['useDarkTheme'] as bool? ?? false,
+      desktopFontFamily: json['desktopFontFamily'] as String? ?? '',
+      desktopTextScale: ((json['desktopTextScale'] as num?)?.toDouble() ?? 1.0)
+          .clamp(0.9, 1.3)
+          .toDouble(),
       contextWindowTokens: defaultProfile.contextWindowTokens,
       autoCompressContext: defaultProfile.autoCompressContext,
       autoCompressAtPercent: defaultProfile.autoCompressAtPercent,
