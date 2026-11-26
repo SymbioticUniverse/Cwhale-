@@ -7,6 +7,7 @@ import 'chat_screen.dart';
 import 'generation_protection.dart';
 import 'local_store.dart';
 import 'onboarding_flow_page.dart';
+import 'resource_radar.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -103,14 +104,27 @@ class _StartupGate extends StatefulWidget {
   State<_StartupGate> createState() => _StartupGateState();
 }
 
-class _StartupGateState extends State<_StartupGate> {
+class _StartupGateState extends State<_StartupGate> with WidgetsBindingObserver {
   final _store = LocalStore();
   bool? _showOnboarding;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    ResourceRadar.instance.refresh();
     _resolveStartup();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) ResourceRadar.instance.refresh();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   Future<void> _resolveStartup() async {

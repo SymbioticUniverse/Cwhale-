@@ -33,6 +33,7 @@ import 'local_file_opener.dart';
 import 'memory_router.dart';
 import 'notifications_page.dart';
 import 'office_tools.dart';
+import 'resource_radar.dart';
 import 'capability_prompt.dart';
 import 'server_managed_model_client.dart';
 import 'tool_executor.dart';
@@ -2614,6 +2615,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Set<String> _explicitToolRequests(String text) {
     final requests = <String>{};
+    if (ResourceRadar.matchesRequest(text)) requests.add(ResourceRadar.toolName);
     bool matches(String pattern) =>
         RegExp(pattern, caseSensitive: false).hasMatch(text);
 
@@ -3778,6 +3780,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final availableTools = _tools.definitions(
         enableLocalTime: selectedTools.contains('get_local_time'),
         enableWeather: selectedTools.contains('get_weather'),
+        enableResourceRadar: selectedTools.contains(ResourceRadar.toolName),
         enableWordDocument: selectedTools.contains('create_word_document'),
         enablePresentation: selectedTools.contains('create_presentation'),
         enableSpreadsheet: selectedTools.contains('create_spreadsheet'),
@@ -4002,6 +4005,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           }
           if (call.name == 'open_web_page' && !result.startsWith('无法读取')) {
             searchCitations.addAll(_tools.searchCitations(result));
+          }
+          if (call.name == ResourceRadar.toolName &&
+              result.contains('数据来源：${ResourceRadar.gamerPowerCredit}')) {
+            searchCitations.add(ResourceRadar.gamerPowerCredit);
           }
           if (call.name == 'get_weather') {
             final sourceLine = result

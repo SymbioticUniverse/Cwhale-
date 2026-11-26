@@ -10,6 +10,7 @@ import 'package:trafilatura/trafilatura.dart' as trafilatura;
 import 'chat_models.dart';
 import 'direct_model_client.dart';
 import 'office_tools.dart';
+import 'resource_radar.dart';
 
 class _SearchCandidate {
   const _SearchCandidate({
@@ -47,6 +48,7 @@ class ToolExecutor {
     bool enablePresentation = false,
     bool enableSpreadsheet = false,
     bool enableWebSearch = false,
+    bool enableResourceRadar = false,
   }) {
     final result = <Map<String, dynamic>>[
       _function(
@@ -151,6 +153,25 @@ class ToolExecutor {
       );
     }
 
+    if (enableResourceRadar) {
+      result.add(
+        _function(
+          ResourceRadar.toolName,
+          '用户明确查询现在哪些完整游戏限免或可免费领取时调用。查询本机 Epic Games 和 GamerPower 福利。活动条件和截止时间以来源为准。使用返回的来源链接，区分来源不可用、缓存和没有结果。平台词和“免费”不要放进游戏名过滤。',
+          const {
+            'type': 'object',
+            'properties': {
+              'platform': {
+                'type': 'string',
+                'enum': ['all', 'pc', 'epic', 'steam', 'gog', 'mobile'],
+              },
+              'keyword': {'type': 'string', 'description': '用户指定的游戏名称片段，没有则省略'},
+            },
+            'required': ['platform'],
+          },
+        ),
+      );
+    }
     if (enableWebSearch) {
       result.add(
         _function(
@@ -200,6 +221,7 @@ class ToolExecutor {
       if (enableWeather) 'get_weather',
       if (enableWebSearch) 'web_search',
       if (enableWebSearch) 'open_web_page',
+      if (enableResourceRadar) ResourceRadar.toolName,
     };
     return result.where((definition) {
       final function = definition['function'];
@@ -215,6 +237,14 @@ class ToolExecutor {
     final arguments = _decodeArguments(call.arguments);
     try {
       switch (call.name) {
+        case ResourceRadar.toolName:
+          onActivity('正在查询本机资源雷达');
+          return ToolExecutionResult(
+            content: await ResourceRadar.instance.search(
+              platform: arguments['platform']?.toString() ?? 'all',
+              keyword: arguments['keyword']?.toString() ?? '',
+            ),
+          );
         case 'get_local_time':
           return ToolExecutionResult(content: _localTime());
         case 'web_search':
