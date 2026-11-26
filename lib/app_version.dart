@@ -4,5 +4,5 @@
 /// and passes APP_VERSION explicitly to every release build.
 const String appVersion = String.fromEnvironment(
   'APP_VERSION',
-  defaultValue: '0.1.36',
+  defaultValue: '0.1.37',
 );
