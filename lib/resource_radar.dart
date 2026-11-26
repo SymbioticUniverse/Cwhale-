@@ -44,6 +44,35 @@ class ResourceRadar {
     _refreshing = null;
   });
 
+  Future<List<String>> recommendedPrompts() async {
+    await refresh();
+    final now = DateTime.now();
+    final offers = <String, String>{};
+    for (final source in _sources) {
+      final saved = _snapshots[source];
+      if (saved == null || now.difference(saved.fetchedAt) >= _freshFor) {
+        continue;
+      }
+      for (final item in saved.offers) {
+        if (!item.matches('pc', '', now)) continue;
+        final title = item.title
+            .replaceAll(
+              RegExp(
+                r'\((?:Epic Games|Steam|GOG)[^)]*\)',
+                caseSensitive: false,
+              ),
+              '',
+            )
+            .replaceFirst(RegExp(r'\s+giveaway$', caseSensitive: false), '')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
+        if (title.isEmpty || title.runes.length > 44) continue;
+        offers.putIfAbsent(item.dedupKey, () => '用资源雷达查《$title》的领取方式');
+      }
+    }
+    return offers.values.take(12).toList();
+  }
+
   Future<File> _cacheFile() async {
     final directory = await getApplicationSupportDirectory();
     return File(

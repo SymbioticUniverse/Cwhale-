@@ -25,6 +25,7 @@ import 'desktop_workspace.dart';
 import 'generation_protection.dart';
 import 'github_update_service.dart';
 import 'humanizer_skill.dart';
+import 'home_recommendations.dart';
 import 'kilo_gateway.dart';
 import 'local_store.dart';
 import 'story_simulator.dart';
@@ -6314,12 +6315,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 constraints: const BoxConstraints(maxWidth: 1160),
                 child: SizedBox.expand(
                   child: isEmpty
-                      ? _DesktopWelcome(
-                          hasModelKey: hasModelKey,
-                          activeProfile: activeProfile,
-                          onOpenSettings: _openSettings,
-                          onSuggestion: _send,
-                        )
+                      ? _emptyConversation(thread, hasModelKey)
                       : _messageList(thread, desktop: true),
                 ),
               ),
@@ -6550,6 +6546,36 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _emptyConversation(ChatThread? thread, bool hasModelKey) {
+    final nearbyThreads = _threads.where((item) => item.id != thread?.id).take(4);
+    return HomeRecommendations(
+      key: ValueKey(thread?.id ?? 'new-conversation'),
+      context: [
+        if (thread != null) thread.localNote,
+        for (final item in nearbyThreads) ...[
+          item.title,
+          ...item.messages.reversed
+              .where((message) => message.role == 'user')
+              .take(1)
+              .map((message) => String.fromCharCodes(message.content.runes.take(300))),
+        ],
+      ],
+      profile: [
+        for (final record in _importantMemories.reversed.take(24)) ...record.keywords,
+      ],
+      hasModelKey: hasModelKey,
+      onOpenSettings: _openSettings,
+      onSelect: (prompt) {
+        final existing = _draft.text.trimRight();
+        final text = existing.isEmpty ? prompt : '$existing\n$prompt';
+        _draft.value = TextEditingValue(
+          text: text,
+          selection: TextSelection.collapsed(offset: text.length),
+        );
+      },
+    );
+  }
+
   Widget _buildChatBody({
     required ChatThread? thread,
     required bool hasModelKey,
@@ -6569,11 +6595,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 constraints: const BoxConstraints(maxWidth: 980),
                 child: SizedBox.expand(
                   child: thread == null || thread.messageCount == 0
-                      ? _Welcome(
-                          onSuggestion: _send,
-                          hasModelKey: hasModelKey,
-                          onOpenSettings: _openSettings,
-                        )
+                      ? _emptyConversation(thread, hasModelKey)
                       : _messageList(thread),
                 ),
               ),
@@ -7748,271 +7770,6 @@ class _DesktopThreadTile extends StatelessWidget {
   );
 }
 
-class _DesktopWelcome extends StatelessWidget {
-  const _DesktopWelcome({
-    required this.hasModelKey,
-    required this.activeProfile,
-    required this.onOpenSettings,
-    required this.onSuggestion,
-  });
-
-  final bool hasModelKey;
-  final ApiProfile activeProfile;
-  final VoidCallback onOpenSettings;
-  final ValueChanged<String> onSuggestion;
-
-  static const _suggestions = <(String, String, IconData)>[
-    ('整理思路', '把一个想法拆解清楚', Icons.lightbulb_outline_rounded),
-    ('写点东西', '从提纲开始起草', Icons.edit_note_rounded),
-    ('学个新知', '用简单的话解释概念', Icons.school_outlined),
-  ];
-
-  @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final compact = constraints.maxWidth < 860;
-      final introduction = Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const CwhaleBrandMark(size: 40, cornerRadius: 13),
-              const SizedBox(width: 12),
-              Text(
-                'CWHale  /  WORKSPACE',
-                style: TextStyle(
-                  color: _muted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.9,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 28),
-          Text(
-            hasModelKey ? '想把什么事情\n理清楚？' : '欢迎来到\nCwhale 工作区',
-            style: TextStyle(
-              color: _ink,
-              fontSize: 34,
-              height: 1.18,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.6,
-            ),
-          ),
-          const SizedBox(height: 14),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: Text(
-              '清晰的对话空间，常用操作就在手边。聊天记录保存在本机，模型由你选择。',
-              style: TextStyle(color: _muted, fontSize: 16, height: 1.65),
-            ),
-          ),
-          const SizedBox(height: 30),
-          Text(
-            '从一个方向开始',
-            style: TextStyle(
-              color: _ink,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              for (final suggestion in _suggestions)
-                SizedBox(
-                  width: compact ? double.infinity : 205,
-                  child: Material(
-                    color: _surface,
-                    borderRadius: BorderRadius.circular(14),
-                    child: InkWell(
-                      onTap: () => onSuggestion(suggestion.$2),
-                      borderRadius: BorderRadius.circular(14),
-                      child: Container(
-                        padding: const EdgeInsets.fromLTRB(14, 13, 12, 13),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: _line),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(suggestion.$3, color: _green, size: 20),
-                            const SizedBox(width: 11),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    suggestion.$1,
-                                    style: TextStyle(
-                                      color: _ink,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 3),
-                                  Text(
-                                    suggestion.$2,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: _muted,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ],
-      );
-
-      final modelCard = Container(
-        padding: const EdgeInsets.all(22),
-        decoration: BoxDecoration(
-          color: _surface,
-          border: Border.all(color: _line),
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(
-                alpha: CwhaleTheme.isDark ? 0.0 : 0.035,
-              ),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  hasModelKey
-                      ? Icons.check_circle_outline_rounded
-                      : Icons.tune_rounded,
-                  color: _green,
-                  size: 20,
-                ),
-                const SizedBox(width: 9),
-                Text(
-                  hasModelKey ? '模型已连接' : '先连接一个模型',
-                  style: TextStyle(
-                    color: _ink,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              hasModelKey
-                  ? '${activeProfile.displayName}\n${activeProfile.displayModelName}'
-                  : '选择服务商、模型和 API Key，即可开始使用 Cwhale。',
-              style: TextStyle(color: _muted, fontSize: 14, height: 1.6),
-            ),
-            if (!hasModelKey) ...[
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: onOpenSettings,
-                  icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-                  label: const Text('打开模型设置'),
-                ),
-              ),
-            ],
-            const SizedBox(height: 18),
-            Divider(color: _line, height: 1),
-            const SizedBox(height: 15),
-            const _DesktopWelcomeFact(
-              icon: Icons.lock_outline_rounded,
-              text: '聊天和记忆保存在本机',
-            ),
-            const SizedBox(height: 12),
-            const _DesktopWelcomeFact(
-              icon: Icons.tune_rounded,
-              text: '每个对话可单独选择模型',
-            ),
-            const SizedBox(height: 12),
-            const _DesktopWelcomeFact(
-              icon: Icons.attach_file_rounded,
-              text: '文件和工具按需使用',
-            ),
-          ],
-        ),
-      );
-
-      return SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(
-          compact ? 24 : 48,
-          42,
-          compact ? 24 : 48,
-          28,
-        ),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1080),
-            child: compact
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      introduction,
-                      const SizedBox(height: 26),
-                      modelCard,
-                    ],
-                  )
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(flex: 6, child: introduction),
-                      const SizedBox(width: 36),
-                      Expanded(
-                        flex: 4,
-                        child: Padding(
-                          padding: const EdgeInsets.only(top: 38),
-                          child: modelCard,
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
-        ),
-      );
-    },
-  );
-}
-
-class _DesktopWelcomeFact extends StatelessWidget {
-  const _DesktopWelcomeFact({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Icon(icon, color: _green, size: 17),
-      const SizedBox(width: 9),
-      Expanded(
-        child: Text(text, style: TextStyle(color: _muted, fontSize: 13)),
-      ),
-    ],
-  );
-}
-
 class _DesktopInfoCard extends StatelessWidget {
   const _DesktopInfoCard({
     required this.icon,
@@ -8054,194 +7811,6 @@ class _DesktopInfoCard extends StatelessWidget {
         const SizedBox(height: 13),
         child,
       ],
-    ),
-  );
-}
-
-class _Welcome extends StatelessWidget {
-  const _Welcome({
-    required this.onSuggestion,
-    required this.hasModelKey,
-    required this.onOpenSettings,
-  });
-
-  final ValueChanged<String> onSuggestion;
-  final bool hasModelKey;
-  final VoidCallback onOpenSettings;
-
-  static const _suggestions = [
-    ('整理思路', '帮我把一个想法理清楚'),
-    ('写点东西', '帮我起草一段文字'),
-    ('学个新知', '用简单的话解释一个概念'),
-  ];
-
-  @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-    padding: const EdgeInsets.fromLTRB(22, 28, 22, 20),
-    child: Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 58,
-              height: 58,
-              decoration: BoxDecoration(
-                color: CwhaleTheme.selectedSurface,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const CwhaleBrandMark(size: 58, cornerRadius: 20),
-            ),
-            const SizedBox(height: 23),
-            Text(
-              hasModelKey ? '你好，想聊点什么？' : '欢迎来到 Cwhale',
-              style: TextStyle(
-                color: _ink,
-                fontSize: 27,
-                height: 1.22,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 9),
-            Text(
-              hasModelKey
-                  ? '连接你自己的模型，开始一段对话。聊天记录和记忆都留在本机。'
-                  : '先连接模型，然后开始对话。模型请求由本机应用直连服务商，聊天和记忆留在本机。',
-              style: TextStyle(color: _muted, fontSize: 14, height: 1.55),
-            ),
-            const SizedBox(height: 20),
-            Material(
-              color: _surface,
-              borderRadius: BorderRadius.circular(18),
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(16, 15, 16, 15),
-                decoration: BoxDecoration(
-                  border: Border.all(color: _line),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          hasModelKey
-                              ? Icons.check_circle_outline_rounded
-                              : Icons.tune_rounded,
-                          color: _green,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 9),
-                        Text(
-                          hasModelKey ? '模型已就绪' : '第一步：连接模型',
-                          style: TextStyle(
-                            color: _ink,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      hasModelKey
-                          ? '现在可以直接在下方输入消息。'
-                          : '添加服务商、模型和 API Key 后即可开始。',
-                      style: TextStyle(
-                        color: _muted,
-                        fontSize: 12,
-                        height: 1.4,
-                      ),
-                    ),
-                    if (!hasModelKey) ...[
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: onOpenSettings,
-                        icon: const Icon(Icons.settings_outlined, size: 18),
-                        label: const Text('打开模型设置'),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 27),
-            Text(
-              '也可以试试',
-              style: TextStyle(
-                color: _muted,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 10),
-            for (final suggestion in _suggestions)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Material(
-                  color: _surface,
-                  borderRadius: BorderRadius.circular(16),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(16),
-                    onTap: () => onSuggestion(suggestion.$2),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 15,
-                        vertical: 14,
-                      ),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: _line),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            suggestion.$1 == '整理思路'
-                                ? Icons.lightbulb_outline_rounded
-                                : suggestion.$1 == '写点东西'
-                                ? Icons.edit_note_rounded
-                                : Icons.school_outlined,
-                            color: _green,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  suggestion.$1,
-                                  style: TextStyle(
-                                    color: _ink,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  suggestion.$2,
-                                  style: TextStyle(color: _muted, fontSize: 12),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Icon(
-                            Icons.arrow_forward_ios_rounded,
-                            color: _muted,
-                            size: 13,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
     ),
   );
 }
