@@ -7,6 +7,7 @@ import 'account_auth_service.dart';
 import 'app_theme.dart';
 import 'chat_models.dart';
 import 'deepseek_chat_import_page.dart';
+import 'execution_mode_guide_page.dart';
 import 'local_store.dart';
 
 class OnboardingFlowPage extends StatefulWidget {
@@ -201,8 +202,24 @@ class _OnboardingFlowPageState extends State<OnboardingFlowPage> {
         _signedInEmail = user.email;
         _verifying = false;
       });
-      _showMessage('邮箱验证成功，已自动登录。');
     });
+    if (_signedInEmail != null) {
+      await _showExecutionModeGuideIfNeeded();
+      _showMessage('邮箱验证成功，已自动登录。');
+    }
+  }
+
+  Future<void> _showExecutionModeGuideIfNeeded() async {
+    try {
+      if (await _store.hasCompletedExecutionModeGuide() || !mounted) return;
+    } catch (_) {
+      return;
+    }
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (context) => const ExecutionModeGuidePage(),
+      ),
+    );
   }
 
   Future<void> _resendCode() async {
@@ -576,7 +593,7 @@ class _OnboardingFlowPageState extends State<OnboardingFlowPage> {
         _notice(
           icon: Icons.lock_outline_rounded,
           title: '加密保存在本机',
-          body: '请妥善保存 API Key。模型请求会由手机直接发送到你配置的服务商。',
+          body: '请妥善保存 API Key。模型请求会由本机应用直接发送到你配置的服务商。',
           ink: ink,
           muted: muted,
           accent: accent,
@@ -684,7 +701,7 @@ class _OnboardingFlowPageState extends State<OnboardingFlowPage> {
           _notice(
             icon: Icons.shield_outlined,
             title: '登录用途与隐私',
-            body: '账号只用于管理登录状态和未来额度发放，不读取你的本机聊天、记忆或文件。使用免费额度时，你提交的请求内容会发送给对应模型服务商。',
+            body: '登录本身只处理账号身份，不读取本机聊天。若你在某个窗口选择“服务器代管”，该窗口的消息、必要上下文和 API Key 会通过 Cwhale 服务器转发给当前模型服务商；Cwhale 免费模型始终由本机直连。',
             ink: ink,
             muted: muted,
             accent: accent,

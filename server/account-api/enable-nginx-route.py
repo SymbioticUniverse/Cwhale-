@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-SNIPPET = """    location ^~ /v1/auth/ {
+AUTH_SNIPPET = """    location ^~ /v1/auth/ {
         proxy_pass http://127.0.0.1:8810;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -19,6 +19,19 @@ SNIPPET = """    location ^~ /v1/auth/ {
         proxy_connect_timeout 5s;
         proxy_read_timeout 25s;
         client_max_body_size 16k;
+    }
+"""
+
+GENERATION_SNIPPET = """    location ^~ /v1/generation/ {
+        proxy_pass http://127.0.0.1:8810;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 30s;
+        client_max_body_size 16m;
     }
 """
 
@@ -75,10 +88,6 @@ def main() -> int:
         print(f"Expected Nginx site file is missing: {nginx_site}", file=sys.stderr)
         return 1
     original = nginx_site.read_text(encoding="utf-8")
-    if re.search(r"(?m)^\s*location\s+\^~\s+/v1/auth/", original):
-        print("Cwhale auth proxy already exists; no changes made.")
-        return 0
-
     candidates = []
     for start, opening, ending, block in _server_blocks(original):
         names = re.search(r"(?m)^\s*server_name\s+([^;]+);", block)
@@ -97,9 +106,22 @@ def main() -> int:
         return 1
 
     _, ending, block = candidates[0]
-    if "/v1/auth/" in block:
-        print("An auth path is already configured in the HTTPS server block; inspect it before changing Nginx.", file=sys.stderr)
-        return 1
+    snippets = []
+    if not re.search(r"(?m)^\s*location\s+\^~\s+/v1/auth/", block):
+        snippets.append(AUTH_SNIPPET)
+    if not re.search(r"(?m)^\s*location\s+\^~\s+/v1/generation/", block):
+        snippets.append(GENERATION_SNIPPET)
+    for path in ("/v1/notifications", "/v1/notifications/", "/v1/me/gray-models", "/v1/admin/"):
+        modifier = "^~" if path.endswith("/") else "="
+        pattern = rf"(?m)^\s*location\s+(?:=\s+|\^~\s+)?{re.escape(path)}\s*\{{"
+        if not re.search(pattern, block):
+            snippets.append(
+                AUTH_SNIPPET.replace("location ^~ /v1/auth/", f"location {modifier} {path}")
+                .replace("client_max_body_size 16k", "client_max_body_size 1m")
+            )
+    if not snippets:
+        print("Cwhale gateway routes already exist; no changes made.")
+        return 0
 
     backup = Path("/var/backups/cwhale-account-api")
     backup.mkdir(parents=True, exist_ok=True)
@@ -107,9 +129,9 @@ def main() -> int:
     backup_file = backup / f"cwhale-auth-nginx-{stamp}.conf"
     shutil.copy2(nginx_site.resolve(), backup_file)
 
-    updated = original[:ending] + "\n" + SNIPPET + original[ending:]
+    updated = original[:ending] + "\n" + "\n".join(snippets) + original[ending:]
     nginx_site.write_text(updated, encoding="utf-8")
-    print(f"Added the Cwhale auth proxy. Backup: {backup_file}")
+    print(f"Added missing Cwhale gateway routes. Backup: {backup_file}")
     return 0
 
 

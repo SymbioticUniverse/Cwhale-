@@ -73,10 +73,13 @@ class DirectModelClient {
       }
     }
     if (settings.injectLocalTimestamp) {
-      outboundMessages.insert(0, {
-        'role': 'system',
-        'content': _localTimeInstruction(DateTime.now()),
-      });
+      final currentUser = outboundMessages.lastIndexWhere(
+        (message) => message['role'] == 'user',
+      );
+      outboundMessages.insert(
+        currentUser < 0 ? outboundMessages.length : currentUser,
+        {'role': 'system', 'content': _localTimeInstruction(DateTime.now())},
+      );
     }
 
     final body = <String, dynamic>{

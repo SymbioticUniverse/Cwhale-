@@ -53,7 +53,7 @@ class _ApiProfilesPageState extends State<ApiProfilesPage> {
     if (_enablingKilo || _hasKiloProfile) return;
     final auth = AccountAuthService.instance;
     if (!auth.isConfigured) {
-      _showMessage('Cwhale 登录服务尚未配置；发布者需在 APK 构建时配置账号服务地址。');
+      _showMessage('Cwhale 登录服务尚未配置；请在应用构建时设置账号服务地址。');
       return;
     }
     if (auth.currentUser == null) {
@@ -623,7 +623,7 @@ class _ApiProfileEditorPageState extends State<ApiProfileEditorPage> {
           Padding(
             padding: EdgeInsets.fromLTRB(5, 0, 5, 12),
             child: Text(
-              '使用 OpenAI 兼容 Chat Completions 协议，手机通过 HTTPS 直接连接此地址。API Key 加密保存在本机安全存储中。',
+              '使用 OpenAI 兼容 Chat Completions 协议，客户端通过 HTTPS 直接连接此地址。API Key 加密保存在本机安全存储中。',
               style: TextStyle(
                 color: _profileMuted,
                 fontSize: 12,

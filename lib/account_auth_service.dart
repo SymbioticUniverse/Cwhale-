@@ -66,6 +66,9 @@ class AccountAuthService extends ChangeNotifier {
   static final AccountAuthService instance = AccountAuthService._();
 
   static const _baseUrl = String.fromEnvironment('CWHale_AUTH_BASE_URL');
+  static const _generationBaseUrl = String.fromEnvironment(
+    'CWHale_TASK_API_BASE_URL',
+  );
   static const _refreshTokenKey = 'cwhale.account.refresh-token.v1';
   static const _cachedUserKey = 'cwhale.account.user.v1';
   static const _secure = FlutterSecureStorage(
@@ -95,6 +98,74 @@ class AccountAuthService extends ChangeNotifier {
   }
 
   AccountUser? get currentUser => _user;
+
+  String get apiBaseUrl => _baseUrl.trim();
+
+  bool get isAuthenticated => _user != null && _accessToken != null;
+
+  bool get isGenerationApiConfigured {
+    final uri = Uri.tryParse(generationApiBaseUrl.trim());
+    return uri != null &&
+        uri.scheme == 'https' &&
+        uri.host.isNotEmpty &&
+        uri.userInfo.isEmpty &&
+        !uri.hasQuery &&
+        !uri.hasFragment;
+  }
+
+  /// The HTTPS origin used by authenticated server-managed generation tasks.
+  /// It intentionally has no baked-in host; production builds provide the
+  /// same public API origin as the account service, or an explicit task API.
+  String get generationApiBaseUrl {
+    final configured = _generationBaseUrl.trim();
+    return configured.isNotEmpty ? configured : _baseUrl.trim();
+  }
+
+  Future<String> requireAccessToken() async {
+    if (!isConfigured || !isGenerationApiConfigured) {
+      throw const AccountAuthException('NOT_CONFIGURED', '服务器代管尚未配置，请先设置服务地址。');
+    }
+    if (_accessToken == null) {
+      await restoreSession();
+    }
+    final token = _accessToken;
+    if (_user == null || token == null || token.isEmpty) {
+      throw const AccountAuthException('UNAUTHORIZED', '请先登录 Cwhale 账号。');
+    }
+    final expiry = _accessTokenExpiry(token);
+    if (expiry != null &&
+        expiry <= DateTime.now().millisecondsSinceEpoch ~/ 1000 + 60) {
+      final refreshToken = await _secure.read(key: _refreshTokenKey);
+      if (refreshToken == null || refreshToken.isEmpty) {
+        await _clearSession();
+        throw const AccountAuthException('UNAUTHORIZED', '登录状态已失效，请重新登录。');
+      }
+      await _acceptSession(
+        await _post('/v1/auth/token/refresh', {'refreshToken': refreshToken}),
+      );
+    }
+    final refreshed = _accessToken;
+    if (refreshed == null || refreshed.isEmpty) {
+      throw const AccountAuthException('UNAUTHORIZED', '请先登录 Cwhale 账号。');
+    }
+    return refreshed;
+  }
+
+  int? _accessTokenExpiry(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return null;
+      final normalized = base64Url.normalize(parts[1]);
+      final payload = jsonDecode(utf8.decode(base64Url.decode(normalized)));
+      return payload is Map<String, dynamic>
+          ? (payload['exp'] as num?)?.toInt()
+          : null;
+    } on FormatException {
+      return null;
+    } on TypeError {
+      return null;
+    }
+  }
 
   Future<AccountChallenge> register({
     required String email,

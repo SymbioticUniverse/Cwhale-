@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -20,31 +21,75 @@ class CwhaleApp extends StatelessWidget {
   Widget build(BuildContext context) => ValueListenableBuilder<bool>(
     valueListenable: CwhaleTheme.darkMode,
     builder: (context, darkMode, _) {
-      SystemChrome.setSystemUIOverlayStyle(
-        darkMode
-            ? const SystemUiOverlayStyle(
-                statusBarColor: Color(0xff111214),
-                statusBarIconBrightness: Brightness.light,
-                systemNavigationBarColor: Color(0xff111214),
-                systemNavigationBarIconBrightness: Brightness.light,
-              )
-            : const SystemUiOverlayStyle(
-                statusBarColor: Color(0xfff8f9fb),
-                statusBarIconBrightness: Brightness.dark,
-                systemNavigationBarColor: Color(0xfff8f9fb),
-                systemNavigationBarIconBrightness: Brightness.dark,
-              ),
-      );
+      if (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS) {
+        SystemChrome.setSystemUIOverlayStyle(
+          darkMode
+              ? const SystemUiOverlayStyle(
+                  statusBarColor: Color(0xff111214),
+                  statusBarIconBrightness: Brightness.light,
+                  systemNavigationBarColor: Color(0xff111214),
+                  systemNavigationBarIconBrightness: Brightness.light,
+                )
+              : const SystemUiOverlayStyle(
+                  statusBarColor: Color(0xfff8f9fb),
+                  statusBarIconBrightness: Brightness.dark,
+                  systemNavigationBarColor: Color(0xfff8f9fb),
+                  systemNavigationBarIconBrightness: Brightness.dark,
+                ),
+        );
+      }
       return MaterialApp(
         title: 'Cwhale',
         debugShowCheckedModeBanner: false,
         theme: CwhaleTheme.light,
         darkTheme: CwhaleTheme.dark,
         themeMode: darkMode ? ThemeMode.dark : ThemeMode.light,
+        builder: (context, child) {
+          if (defaultTargetPlatform != TargetPlatform.windows) {
+            return child ?? const SizedBox.shrink();
+          }
+          final media = MediaQuery.of(context);
+          return MediaQuery(
+            data: media.copyWith(
+              textScaler: _DesktopTypographyScaler(media.textScaler),
+            ),
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
         home: const _StartupGate(),
       );
     },
   );
+}
+
+/// Uses discrete native text sizes instead of fractional whole-window scaling.
+class _DesktopTypographyScaler extends TextScaler {
+  const _DesktopTypographyScaler(this.base);
+
+  final TextScaler base;
+
+  @override
+  double scale(double fontSize) =>
+      base.scale(CwhaleTheme.desktopFontSize(fontSize));
+
+  @override
+  double get textScaleFactor => scale(14) / 14;
+
+  @override
+  TextScaler clamp({
+    double minScaleFactor = 0,
+    double maxScaleFactor = double.infinity,
+  }) => _DesktopTypographyScaler(
+    base.clamp(minScaleFactor: minScaleFactor, maxScaleFactor: maxScaleFactor),
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      other is _DesktopTypographyScaler && other.base == base;
+
+  @override
+  int get hashCode => base.hashCode;
 }
 
 class _StartupGate extends StatefulWidget {

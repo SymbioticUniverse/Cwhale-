@@ -13,6 +13,7 @@ class StoryTurnSummary {
     this.relationshipChanges = const <String>[],
     this.appellationChanges = const <String>[],
     this.keywords = const <String>[],
+    this.sceneDetails = const <String>[],
   });
 
   final String turnId;
@@ -28,6 +29,7 @@ class StoryTurnSummary {
   final List<String> relationshipChanges;
   final List<String> appellationChanges;
   final List<String> keywords;
+  final List<String> sceneDetails;
 
   StoryTurnSummary copyWith({
     int? userMessageIndex,
@@ -49,6 +51,7 @@ class StoryTurnSummary {
     relationshipChanges: relationshipChanges,
     appellationChanges: appellationChanges,
     keywords: keywords,
+    sceneDetails: sceneDetails,
   );
 
   Map<String, dynamic> toJson() => {
@@ -65,6 +68,7 @@ class StoryTurnSummary {
     'relationshipChanges': relationshipChanges,
     'appellationChanges': appellationChanges,
     'keywords': keywords,
+    'sceneDetails': sceneDetails,
   };
 
   factory StoryTurnSummary.fromJson(Map<String, dynamic> json) =>
@@ -84,16 +88,17 @@ class StoryTurnSummary {
         relationshipChanges: _readStringList(json['relationshipChanges']),
         appellationChanges: _readStringList(json['appellationChanges']),
         keywords: _readStringList(json['keywords']),
+        sceneDetails: _readStringList(json['sceneDetails']),
       );
 
   String render() {
     final lines = <String>[
       '剧情时间：$storyTimeStart${storyTimeEnd == storyTimeStart ? '' : ' → $storyTimeEnd'}',
       '梗概：$summary',
+      ...sceneDetails,
       if (relationshipChanges.isNotEmpty)
         '关系变化：${relationshipChanges.join('；')}',
-      if (appellationChanges.isNotEmpty)
-        '称呼变化：${appellationChanges.join('；')}',
+      if (appellationChanges.isNotEmpty) '称呼变化：${appellationChanges.join('；')}',
       '原文位置：$userMessageReference；$assistantMessageReference',
     ];
     return lines.join('\n');
@@ -130,7 +135,5 @@ class StorySimulatorMemory {
       );
 }
 
-List<String> _readStringList(Object? value) => (value as List<dynamic>? ??
-        const [])
-    .whereType<String>()
-    .toList();
+List<String> _readStringList(Object? value) =>
+    (value as List<dynamic>? ?? const []).whereType<String>().toList();

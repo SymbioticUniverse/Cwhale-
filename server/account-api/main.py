@@ -24,9 +24,13 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+import generation_queue
+import operations
 
 
 LOG = logging.getLogger("cwhale.account_api")
@@ -191,7 +195,12 @@ def _error_response(error: AuthError) -> JSONResponse:
 async def _lifespan(_: FastAPI):
     _secret()
     _initialize_database()
-    yield
+    operations.initialize(_db_path())
+    await generation_queue.start_worker(_db_path())
+    try:
+        yield
+    finally:
+        await generation_queue.stop_worker()
 
 
 app = FastAPI(
@@ -201,7 +210,19 @@ app = FastAPI(
     openapi_url=None,
     lifespan=_lifespan,
 )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://127.0.0.1:8765", "http://localhost:8765"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="127.0.0.1")
+generation_queue.configure(_secret, _db_path)
+operations.configure(_secret, _db_path, generation_queue._current_user)
+app.include_router(generation_queue.router)
+app.include_router(operations.router)
 
 
 @app.middleware("http")

@@ -1,6 +1,6 @@
 # Cwhale 邮箱账号流程与服务端接口方案
 
-状态：邮箱账号客户端与 API 已部署。`/v1/auth/` 通过现有 HTTPS/Nginx 转发到独立 systemd 服务；验证码发信使用 163 SMTP。服务端只处理账号认证数据，不提供聊天内容接口。Android 正式包通过 `tool/package_android.ps1 -AuthBaseUrl <账号服务 HTTPS 地址>` 构建。
+状态：邮箱账号客户端与 API 已部署，另提供登录后可选的服务器代管任务队列。/v1/auth/ 和 /v1/generation/ 通过现有 HTTPS/Nginx 转发到同一独立 systemd 服务；账号认证单独使用时不接收聊天。生成队列只处理用户明确启用代管的当前窗口任务。客户端通过构建参数配置服务 HTTPS 地址，不在源码中硬编码服务主机名。
 
 ## 数据边界
 
@@ -26,7 +26,7 @@ flowchart TD
   ACCOUNT -->|退出登录| LOGIN
 ```
 
-登录不作为本地聊天的启动门槛。服务器配置后，用户可以从设置进入账号页面。退出账号不清除任何本机聊天数据。
+登录不作为本地聊天的启动门槛。正式 Android 和 Windows 包均配置账号服务，用户可以从首次引导或设置进入账号页面；未配置端点的本地开发构建会显示未接入提示。退出账号不清除任何本机聊天数据。
 
 ## HTTP API 约定
 
@@ -68,8 +68,8 @@ flowchart TD
 - 注册、登录、验证码发送和密码重置都应按 IP 与账号限流。密码重置请求对已注册和未注册邮箱返回相同响应与大致相同耗时，避免账号枚举。
 - refresh token 应有轮换、重放检测、撤销和过期策略；退出登录需立即撤销当前 refresh token。access token 建议短时效。
 - 邮件验证码和 token 不写普通应用日志；响应不包含密码哈希、验证码或敏感账号状态。
-- 服务端仅保存账号与认证数据。不得从客户端请求聊天记录、记忆、模型 API Key 或文件内容。
+- 账号认证接口只处理账号与认证数据。仅当用户在当前窗口启用服务器代管并确认后，生成任务接口才会接收该窗口请求、必要上下文和 API Key；任务严格绑定账号、窗口与消息 ID，详见 server/account-api/README.md。
 
 ## 当前实现范围
 
-设置页包含邮箱登录、注册、邮箱验证码、忘记密码、重置密码和退出登录界面；未配置账号端点的构建会显示未接入状态。API 服务端实现位于 `server/account-api/`，使用 SQLite、Argon2id、一次性邮件验证码与 refresh token 轮换；生产服务只接收账号认证数据，不提供聊天内容接口。Ubuntu/systemd/Nginx 部署步骤见 `server/account-api/README.md`。
+设置页包含邮箱登录、注册、邮箱验证码、忘记密码、重置密码和退出登录界面；未配置账号端点的构建会显示未接入状态。API 服务端实现位于 server/account-api/，使用 SQLite、Argon2id、一次性邮件验证码与 refresh token 轮换；服务器代管队列使用加密任务存储和有界并发。Ubuntu/systemd/Nginx 部署步骤见 server/account-api/README.md。

@@ -42,6 +42,7 @@ class ModelTurn {
     this.inputTokens,
     this.outputTokens,
     this.totalTokens,
+    this.usageStatus,
   });
 
   final String text;
@@ -50,6 +51,7 @@ class ModelTurn {
   final int? inputTokens;
   final int? outputTokens;
   final int? totalTokens;
+  final String? usageStatus;
 
   Map<String, dynamic> toTaskJson() => {
     'text': text,
@@ -58,6 +60,7 @@ class ModelTurn {
     if (inputTokens != null) 'inputTokens': inputTokens,
     if (outputTokens != null) 'outputTokens': outputTokens,
     if (totalTokens != null) 'totalTokens': totalTokens,
+    if (usageStatus != null) 'usageStatus': usageStatus,
   };
 
   factory ModelTurn.fromTaskJson(Map<String, dynamic> json) => ModelTurn(
@@ -72,6 +75,7 @@ class ModelTurn {
     inputTokens: (json['inputTokens'] as num?)?.toInt(),
     outputTokens: (json['outputTokens'] as num?)?.toInt(),
     totalTokens: (json['totalTokens'] as num?)?.toInt(),
+    usageStatus: json['usageStatus'] as String?,
   );
 }
 

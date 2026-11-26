@@ -33,6 +33,8 @@ class LocalStore {
       'cwhale.free-model.quota-exhausted-at.v1';
   static const _onboardingCompleteKey = 'cwhale.onboarding.complete.v1';
   static const _onboardingStartedKey = 'cwhale.onboarding.started.v1';
+  static const _executionModeGuideCompleteKey =
+      'cwhale.execution-mode-guide.complete.v1';
 
   Future<File> _chatFile() async {
     final directory = await getApplicationSupportDirectory();
@@ -942,7 +944,7 @@ class LocalStore {
     if (saved == null || saved.isEmpty) return const ModelSettings();
     try {
       final decoded = jsonDecode(saved) as Map<String, dynamic>;
-      final settings = ModelSettings.fromJson(decoded);
+      final settings = ModelSettings.fromJson(decoded).withoutGiftedProfiles();
       if (decoded.containsKey('weatherApiKey')) {
         await saveSettings(settings);
       }
@@ -952,8 +954,10 @@ class LocalStore {
     }
   }
 
-  Future<void> saveSettings(ModelSettings settings) =>
-      _secure.write(key: _settingsKey, value: jsonEncode(settings.toJson()));
+  Future<void> saveSettings(ModelSettings settings) => _secure.write(
+    key: _settingsKey,
+    value: jsonEncode(settings.withoutGiftedProfiles().toJson()),
+  );
 
   Future<bool> hasCompletedOnboarding() async =>
       await _secure.read(key: _onboardingCompleteKey) == 'true';
@@ -966,6 +970,12 @@ class LocalStore {
 
   Future<void> markOnboardingCompleted() =>
       _secure.write(key: _onboardingCompleteKey, value: 'true');
+
+  Future<bool> hasCompletedExecutionModeGuide() async =>
+      await _secure.read(key: _executionModeGuideCompleteKey) == 'true';
+
+  Future<void> markExecutionModeGuideCompleted() =>
+      _secure.write(key: _executionModeGuideCompleteKey, value: 'true');
 
   /// Existing installs should enter chat directly instead of being sent
   /// through first-run onboarding after an app update.

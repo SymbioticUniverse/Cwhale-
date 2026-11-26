@@ -116,6 +116,7 @@ class ChatMessage {
     this.thinkingStatus = '',
     this.generationStatus,
     this.generationError,
+    this.serverTaskId,
     DateTime? createdAt,
     String? id,
   }) : createdAt = createdAt ?? DateTime.now(),
@@ -156,6 +157,7 @@ class ChatMessage {
   String thinkingStatus;
   String? generationStatus;
   String? generationError;
+  String? serverTaskId;
   final DateTime createdAt;
 
   void selectVersion(int index) {
@@ -247,6 +249,7 @@ class ChatMessage {
     if (thinkingStatus.isNotEmpty) 'thinkingStatus': thinkingStatus,
     if (generationStatus != null) 'generationStatus': generationStatus,
     if (generationError != null) 'generationError': generationError,
+    if (serverTaskId != null) 'serverTaskId': serverTaskId,
     'createdAt': createdAt.toIso8601String(),
   };
 
@@ -290,6 +293,7 @@ class ChatMessage {
     thinkingStatus: json['thinkingStatus'] as String? ?? '',
     generationStatus: json['generationStatus'] as String?,
     generationError: json['generationError'] as String?,
+    serverTaskId: json['serverTaskId'] as String?,
     createdAt: DateTime.tryParse(json['createdAt'] as String? ?? ''),
   );
 }
@@ -374,6 +378,7 @@ class ChatThread {
     required this.updatedAt,
     this.titleIsManual = false,
     this.apiProfileId = '',
+    this.executionMode = 'direct',
     this.webSearchEnabled = false,
     this.injectLocalTimestamp = false,
     this.deepThinkingEnabled = false,
@@ -400,6 +405,7 @@ class ChatThread {
     this.handoffSourceThreadId = '',
     List<String>? handoffSourceMessageIds,
     this.autoCompressOverride,
+    this.aggressiveHistoryEnabled = false,
     this.storySimulatorEnabled = false,
     this.storyGlobalMemoryText = '',
     this.storyTime = '第 1 日 · 剧情开始',
@@ -414,6 +420,10 @@ class ChatThread {
   String title;
   bool titleIsManual;
   String apiProfileId;
+
+  /// `direct` or `server`; persisted per conversation so windows never share
+  /// execution routing implicitly.
+  String executionMode;
   bool? webSearchEnabled;
   bool? injectLocalTimestamp;
   bool? deepThinkingEnabled;
@@ -444,6 +454,7 @@ class ChatThread {
   String handoffSourceThreadId;
   List<String> handoffSourceMessageIds;
   bool? autoCompressOverride;
+  bool aggressiveHistoryEnabled;
   bool storySimulatorEnabled;
   String storyGlobalMemoryText;
   String storyTime;
@@ -452,12 +463,14 @@ class ChatThread {
   factory ChatThread.create({
     String apiProfileId = deepSeekDefaultProfileId,
     bool injectLocalTimestamp = false,
+    String executionMode = 'direct',
   }) {
     final now = DateTime.now();
     return ChatThread(
       id: newLocalId(),
       title: '新对话',
       apiProfileId: apiProfileId,
+      executionMode: executionMode == 'server' ? 'server' : 'direct',
       injectLocalTimestamp: injectLocalTimestamp,
       createdAt: now,
       updatedAt: now,
@@ -469,6 +482,7 @@ class ChatThread {
     'title': title,
     'titleIsManual': titleIsManual,
     'apiProfileId': apiProfileId,
+    'executionMode': executionMode,
     if (webSearchEnabled != null) 'webSearchEnabled': webSearchEnabled,
     if (injectLocalTimestamp != null)
       'injectLocalTimestamp': injectLocalTimestamp,
@@ -501,6 +515,7 @@ class ChatThread {
     'handoffSourceMessageIds': handoffSourceMessageIds,
     if (autoCompressOverride != null)
       'autoCompressOverride': autoCompressOverride,
+    if (aggressiveHistoryEnabled) 'aggressiveHistoryEnabled': true,
     'storySimulatorEnabled': storySimulatorEnabled,
     'storyGlobalMemoryText': storyGlobalMemoryText,
     'storyTime': storyTime,
@@ -515,6 +530,7 @@ class ChatThread {
       title: json['title'] as String? ?? '新对话',
       titleIsManual: json['titleIsManual'] as bool? ?? false,
       apiProfileId: json['apiProfileId'] as String? ?? '',
+      executionMode: json['executionMode'] == 'server' ? 'server' : 'direct',
       webSearchEnabled: json['webSearchEnabled'] as bool?,
       injectLocalTimestamp: json['injectLocalTimestamp'] as bool?,
       deepThinkingEnabled: json['deepThinkingEnabled'] as bool?,
@@ -559,6 +575,7 @@ class ChatThread {
               .whereType<String>()
               .toList(),
       autoCompressOverride: json['autoCompressOverride'] as bool?,
+      aggressiveHistoryEnabled: json['aggressiveHistoryEnabled'] == true,
       storySimulatorEnabled: json['storySimulatorEnabled'] as bool? ?? false,
       storyGlobalMemoryText: json['storyGlobalMemoryText'] as String? ?? '',
       storyTime: json['storyTime'] as String? ?? '第 1 日 · 剧情开始',
@@ -585,6 +602,11 @@ class ApiProfile {
     this.supportsThinkingLevels = true,
     this.supportsImages = true,
     this.supportsFiles = true,
+    this.serverEntitlementId,
+    this.giftedQuotaTokens = 0,
+    this.giftedUsedTokens = 0,
+    this.giftedReservedTokens = 0,
+    this.giftedRemainingTokens = 0,
   });
 
   final String id;
@@ -600,6 +622,13 @@ class ApiProfile {
   final bool supportsThinkingLevels;
   final bool supportsImages;
   final bool supportsFiles;
+  final String? serverEntitlementId;
+  final int giftedQuotaTokens;
+  final int giftedUsedTokens;
+  final int giftedReservedTokens;
+  final int giftedRemainingTokens;
+
+  bool get isServerGifted => serverEntitlementId?.isNotEmpty == true;
 
   bool get isBuiltInKilo =>
       id == kiloApiProfileId &&
@@ -623,6 +652,11 @@ class ApiProfile {
     bool? supportsThinkingLevels,
     bool? supportsImages,
     bool? supportsFiles,
+    String? serverEntitlementId,
+    int? giftedQuotaTokens,
+    int? giftedUsedTokens,
+    int? giftedReservedTokens,
+    int? giftedRemainingTokens,
   }) => ApiProfile(
     id: id,
     name: name ?? this.name,
@@ -639,6 +673,11 @@ class ApiProfile {
         supportsThinkingLevels ?? this.supportsThinkingLevels,
     supportsImages: supportsImages ?? this.supportsImages,
     supportsFiles: supportsFiles ?? this.supportsFiles,
+    serverEntitlementId: serverEntitlementId ?? this.serverEntitlementId,
+    giftedQuotaTokens: giftedQuotaTokens ?? this.giftedQuotaTokens,
+    giftedUsedTokens: giftedUsedTokens ?? this.giftedUsedTokens,
+    giftedReservedTokens: giftedReservedTokens ?? this.giftedReservedTokens,
+    giftedRemainingTokens: giftedRemainingTokens ?? this.giftedRemainingTokens,
   );
 
   Map<String, dynamic> toJson() => {
@@ -655,6 +694,11 @@ class ApiProfile {
     'supportsThinkingLevels': supportsThinkingLevels,
     'supportsImages': supportsImages,
     'supportsFiles': supportsFiles,
+    if (isServerGifted) 'serverEntitlementId': serverEntitlementId,
+    if (isServerGifted) 'giftedQuotaTokens': giftedQuotaTokens,
+    if (isServerGifted) 'giftedUsedTokens': giftedUsedTokens,
+    if (isServerGifted) 'giftedReservedTokens': giftedReservedTokens,
+    if (isServerGifted) 'giftedRemainingTokens': giftedRemainingTokens,
   };
 
   factory ApiProfile.fromJson(Map<String, dynamic> json) {
@@ -689,6 +733,13 @@ class ApiProfile {
       supportsThinkingLevels: json['supportsThinkingLevels'] as bool? ?? true,
       supportsImages: json['supportsImages'] as bool? ?? true,
       supportsFiles: json['supportsFiles'] as bool? ?? true,
+      serverEntitlementId: json['serverEntitlementId'] as String?,
+      giftedQuotaTokens: (json['giftedQuotaTokens'] as num?)?.toInt() ?? 0,
+      giftedUsedTokens: (json['giftedUsedTokens'] as num?)?.toInt() ?? 0,
+      giftedReservedTokens:
+          (json['giftedReservedTokens'] as num?)?.toInt() ?? 0,
+      giftedRemainingTokens:
+          (json['giftedRemainingTokens'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -738,6 +789,8 @@ class ModelSettings {
     this.supportsThinkingToggle = false,
     this.supportsThinkingLevels = false,
     this.isKiloAnonymous = false,
+    this.defaultExecutionMode = 'direct',
+    this.serverEntitlementId = '',
   });
 
   final String baseUrl;
@@ -756,9 +809,27 @@ class ModelSettings {
   final bool supportsThinkingToggle;
   final bool supportsThinkingLevels;
   final bool isKiloAnonymous;
+  final String defaultExecutionMode;
+  final String serverEntitlementId;
 
   bool hasApiProfile(String id) =>
       apiProfiles.any((profile) => profile.id == id);
+
+  ModelSettings withoutGiftedProfiles() {
+    if (!apiProfiles.any((profile) => profile.isServerGifted)) return this;
+    final regular = apiProfiles
+        .where((profile) => !profile.isServerGifted)
+        .toList();
+    if (regular.isEmpty) regular.add(_defaultDeepSeekProfile);
+    final defaultId =
+        regular.any((profile) => profile.id == defaultApiProfileId)
+        ? defaultApiProfileId
+        : regular.first.id;
+    return copyWith(
+      apiProfiles: regular,
+      defaultApiProfileId: defaultId,
+    ).forProfile(defaultId);
+  }
 
   ApiProfile profileFor(String? id) {
     for (final profile in apiProfiles) {
@@ -782,6 +853,7 @@ class ModelSettings {
       supportsThinkingToggle: profile.supportsThinkingToggle,
       supportsThinkingLevels: profile.supportsThinkingLevels,
       isKiloAnonymous: profile.isBuiltInKilo,
+      serverEntitlementId: profile.serverEntitlementId ?? '',
     );
   }
 
@@ -802,6 +874,8 @@ class ModelSettings {
     bool? supportsThinkingToggle,
     bool? supportsThinkingLevels,
     bool? isKiloAnonymous,
+    String? defaultExecutionMode,
+    String? serverEntitlementId,
   }) => ModelSettings(
     baseUrl: baseUrl ?? this.baseUrl,
     model: model ?? this.model,
@@ -821,6 +895,8 @@ class ModelSettings {
     supportsThinkingLevels:
         supportsThinkingLevels ?? this.supportsThinkingLevels,
     isKiloAnonymous: isKiloAnonymous ?? this.isKiloAnonymous,
+    defaultExecutionMode: defaultExecutionMode ?? this.defaultExecutionMode,
+    serverEntitlementId: serverEntitlementId ?? this.serverEntitlementId,
   );
 
   Map<String, dynamic> toJson() => {
@@ -841,6 +917,8 @@ class ModelSettings {
     'supportsThinkingToggle': supportsThinkingToggle,
     'supportsThinkingLevels': supportsThinkingLevels,
     'isKiloAnonymous': isKiloAnonymous,
+    'defaultExecutionMode': defaultExecutionMode,
+    'serverEntitlementId': serverEntitlementId,
   };
 
   factory ModelSettings.fromJson(Map<String, dynamic> json) {
@@ -937,6 +1015,13 @@ class ModelSettings {
       supportsThinkingToggle: json['supportsThinkingToggle'] as bool? ?? false,
       supportsThinkingLevels: json['supportsThinkingLevels'] as bool? ?? false,
       isKiloAnonymous: json['isKiloAnonymous'] as bool? ?? false,
+      defaultExecutionMode: json['defaultExecutionMode'] == 'server'
+          ? 'server'
+          : 'direct',
+      serverEntitlementId:
+          defaultProfile.serverEntitlementId ??
+          json['serverEntitlementId'] as String? ??
+          '',
     );
   }
 }

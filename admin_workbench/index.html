@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Cwhale 本地运营工作台</title>
+  <style>
+    :root{font:16px/1.5 system-ui,"Microsoft YaHei",sans-serif;color:#202331;background:#f4f6fb;--blue:#617ef1;--line:#e2e6ef;--muted:#747b8c}
+    *{box-sizing:border-box}[hidden]{display:none!important}body{margin:0}.top{background:#fff;border-bottom:1px solid var(--line);padding:18px max(20px,calc((100vw - 1120px)/2));display:flex;align-items:center;justify-content:space-between;gap:18px;position:sticky;top:0;z-index:2}
+    h1{font-size:20px;margin:0}.wrap{max-width:1120px;margin:auto;padding:24px 20px 60px}.config,.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px}.config{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;align-items:end}.tabs{display:flex;gap:8px;overflow:auto;margin:18px 0}.tab,button{border:0;border-radius:10px;padding:10px 14px;font:inherit;cursor:pointer}.tab{background:#e9ecf5;color:#50586b;white-space:nowrap}.tab.active,button.primary{background:var(--blue);color:white}.tabpane{display:none}.tabpane.active{display:block}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.field{display:flex;flex-direction:column;gap:5px;margin:10px 0}.field label{font-size:13px;color:#555e72}.field input,.field textarea,.field select{width:100%;padding:10px 12px;border:1px solid #dce1eb;border-radius:9px;font:inherit;background:#fff}.field textarea{min-height:95px;resize:vertical}.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.muted{color:var(--muted);font-size:13px}.item{border:1px solid var(--line);border-radius:12px;padding:13px;margin:10px 0}.item h3{font-size:16px;margin:0 0 4px}.danger{color:#c53e50}.status{min-height:22px;color:#667085;margin:8px 0}.hidden{display:none!important}.badge{font-size:12px;padding:2px 7px;border-radius:99px;background:#edf0f7}.item p{white-space:pre-wrap;margin:8px 0}.foot{color:var(--muted);font-size:12px;margin-top:18px}.selection{margin:10px 0}.selection button{margin-left:8px}.small{font-size:12px}
+    @media(max-width:700px){.config,.grid{grid-template-columns:1fr}.top{position:static}}
+  </style>
+</head>
+<body>
+<header class="top"><h1>Cwhale 本地运营工作台</h1><div class="row"><span id="connection" class="muted">尚未连接</span><button id="disconnect" class="hidden">退出工作台</button></div></header>
+<main class="wrap">
+  <section class="config">
+    <div class="field"><label for="api">账号服务地址</label><input id="api" placeholder="https://账号服务域名"></div>
+    <div class="field"><label for="email">管理员账号邮箱</label><input id="email" type="email" autocomplete="username"></div>
+    <div class="field"><label for="password">管理员账号密码</label><input id="password" type="password" autocomplete="current-password"></div>
+    <button class="primary" id="connect">登录并连接</button>
+    <div class="muted" style="grid-column:1/-1">密码只通过 HTTPS 登录请求发送，不保存在页面或浏览器存储中。访问令牌只保存在页面内存；关闭或刷新后需重新登录。仅服务端白名单管理员可操作。</div>
+  </section>
+  <nav class="tabs">
+    <button class="tab active" data-tab="notice">通知发布</button><button class="tab" data-tab="models">灰度模型</button><button class="tab" data-tab="grant">额度赠与</button><button class="tab" data-tab="audit">操作记录</button>
+  </nav>
+  <div id="status" class="status" role="status"></div>
+  <section id="notice" class="tabpane active">
+    <div class="card"><h2>发布通知</h2>
+      <div class="grid"><div class="field"><label>标题</label><input id="n-title" maxlength="120"></div><div class="field"><label>类型</label><select id="n-category"><option value="activity">活动</option><option value="update">版本更新</option><option value="general">公告</option><option value="gray_test">灰度测试</option><option value="quota">额度</option></select></div></div>
+      <div class="field"><label>正文</label><textarea id="n-body" maxlength="5000"></textarea></div>
+      <div class="grid"><div class="field"><label>受众</label><select id="n-audience"><option value="global">全域</option><option value="targeted">指定用户</option></select></div><div class="field" id="notice-recipient-field" hidden><label>指定收件人</label><div class="row"><input id="user-query" placeholder="按邮箱搜索账号"><button id="find-users">搜索</button></div><div id="notice-user-selection" class="selection muted">尚未选择收件人</div><div id="notice-user-list"></div></div></div>
+      <div class="grid"><div class="field"><label>按钮动作</label><select id="n-action"><option value="none">无按钮</option><option value="models">查看模型</option><option value="quota">查看额度</option><option value="activity">查看活动链接</option><option value="updates">查看更新</option></select></div><div class="field"><label>活动链接（仅活动链接动作使用）</label><input id="n-action-value" placeholder="https://..."></div></div>
+      <div class="field"><label>过期时间（可选）</label><input id="n-expires" type="datetime-local"></div>
+      <div class="row"><button class="primary" id="publish">发布通知</button><span class="muted">全域通知对所有用户可见；定向通知仅对指定且已验证的账号可见。</span></div>
+    </div><div class="card"><h2>通知记录</h2><div id="notice-list"></div></div>
+  </section>
+  <section id="models" class="tabpane">
+    <div class="card"><h2>登记服务器托管模型</h2><div class="muted">上游凭据只保存在服务端加密配置中，不会发给客户端。用户不能自行新增、修改或设置 API Key。编辑模型时 API Key 留空即可保留旧密钥。</div>
+      <div class="grid"><div class="field"><label>模型内部 ID</label><input id="m-id" placeholder="例如：gray-model-01"></div><div class="field"><label>模型显示名</label><input id="m-name" placeholder="例如：Cwhale 灰度模型"></div></div>
+      <div class="grid"><div class="field"><label>上游模型 ID</label><input id="m-model" placeholder="供应商模型代号"></div><div class="field"><label>上游 HTTPS API 地址</label><input id="m-url" placeholder="https://provider.example/v1"></div></div>
+      <div class="grid"><div class="field"><label>上下文上限</label><input id="m-context" type="number" min="16000" value="65536"></div><div class="field"><label>上游 API Key（新增必填；编辑可留空保持原 Key）</label><input id="m-key" type="password" autocomplete="new-password"></div></div>
+      <div class="row"><label><input type="checkbox" id="m-thinking">支持思考开关</label><label><input type="checkbox" id="m-levels">支持思考档位</label><label><input type="checkbox" id="m-images">支持图片</label><label><input type="checkbox" id="m-files">支持文件</label><label><input type="checkbox" id="m-enabled" checked>启用</label></div>
+      <p class="row"><button class="primary" id="save-model">保存模型</button><button id="clear-model-form">清空表单</button></p>
+    </div><div class="card"><h2>已登记模型</h2><div id="model-list"></div></div>
+  </section>
+  <section id="grant" class="tabpane"><div class="card"><h2>赠与灰度额度</h2>
+    <div class="grid"><div class="field"><label>用户 ID</label><input id="g-user" placeholder="从用户列表选择"></div><div class="field"><label>模型</label><select id="g-model"></select></div></div>
+    <div class="grid"><div class="field"><label>额度（Token）</label><input id="g-quota" type="number" min="1"></div><div class="field"><label>到期时间（可选）</label><input id="g-expires" type="datetime-local"></div></div>
+    <p><button class="primary" id="grant-button">确认赠与</button></p>
+    <hr><h3>查找用户</h3><div class="row"><input id="grant-user-query" placeholder="按邮箱搜索账号"><button id="find-grant-users">搜索用户</button></div><div id="user-list"></div>
+  </div><div class="card"><h2>当前赠与记录</h2><div id="grant-list"></div></div></section>
+  <section id="audit" class="tabpane"><div class="card"><div class="row"><h2 style="margin-right:auto">管理员操作记录</h2><button id="refresh-audit">刷新</button></div><div id="audit-list"></div></div></section>
+  <p class="foot">此工作台仅在本机浏览器打开页面，不提供公开管理入口。请勿分享管理员账号或工作台截图。</p>
+</main>
+<script>
+(()=>{
+  let api='',token='';
+  const selectedNoticeUsers=new Map();
+  const $=id=>document.getElementById(id);
+  const status=t=>{$('status').textContent=t||''};
+  const rows=d=>Array.isArray(d)?d:(d.items||[]);
+  function rootUrl(){const root=new URL(api);if(root.protocol!=='https:'&&!['localhost','127.0.0.1'].includes(root.hostname))throw Error('账号服务地址必须使用 HTTPS');if(root.username||root.password||root.search||root.hash)throw Error('服务地址不能包含凭据、查询参数或片段');return root.toString().replace(/\/$/,'')}
+  async function rawRequest(url,opts={}){const r=await fetch(url,opts);const raw=await r.text();let data={};try{data=raw?JSON.parse(raw):{}}catch{}if(!r.ok)throw Error(data.detail||data.message||('请求失败 '+r.status));return data}
+  async function request(path,opts={}){if(!api||!token)throw Error('请先登录管理员账号');return rawRequest(rootUrl()+path,{...opts,headers:{Authorization:'Bearer '+token,'Content-Type':'application/json',...(opts.headers||{})}})}
+  function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+  function dateText(value){if(!value)return '';const n=Number(value);const d=Number.isFinite(n)?new Date(n>100000000000?n:n*1000):new Date(value);return Number.isNaN(d.getTime())?'':d.toLocaleString()}
+  function epoch(value){return value?Math.floor(new Date(value).getTime()/1000):null}
+  document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab,.tabpane').forEach(x=>x.classList.remove('active'));b.classList.add('active');$(b.dataset.tab).classList.add('active')});
+  async function loadNotices(){const d=await request('/v1/admin/notifications');$('notice-list').innerHTML=rows(d).map(x=>`<div class="item"><h3>${esc(x.title)} <span class="badge">${esc(x.audience==='global'?'全域':x.audience==='targeted'?'指定用户':x.audience||'')}</span> <span class="badge">${esc(x.status||'')}</span></h3><p>${esc(x.body)}</p><div class="row"><span class="muted">${esc(x.category)} · ${dateText(x.published_at||x.created_at)} · ${Number(x.recipient_count||0)} 人</span>${x.status==='revoked'?'':`<button class="danger" data-revoke-notice="${esc(x.id)}">撤回</button>`}</div></div>`).join('')||'<p class="muted">暂无通知</p>';document.querySelectorAll('[data-revoke-notice]').forEach(b=>b.onclick=async()=>{if(confirm('撤回这条通知？')){await request('/v1/admin/notifications/'+encodeURIComponent(b.dataset.revokeNotice)+'/revoke',{method:'POST'});await loadNotices()}})}
+  function clearModelForm(){['m-id','m-name','m-model','m-url','m-key'].forEach(id=>$(id).value='');$('m-context').value='65536';$('m-thinking').checked=false;$('m-levels').checked=false;$('m-images').checked=false;$('m-files').checked=false;$('m-enabled').checked=true}
+  function editModel(x){$('m-id').value=x.modelId||'';$('m-name').value=x.displayName||'';$('m-model').value=x.upstreamModel||'';$('m-url').value=x.upstreamBaseUrl||'';$('m-context').value=x.contextWindowTokens||65536;$('m-thinking').checked=!!x.supportsThinkingToggle;$('m-levels').checked=!!x.supportsThinkingLevels;$('m-images').checked=!!x.supportsImages;$('m-files').checked=!!x.supportsFiles;$('m-enabled').checked=!!x.enabled;$('m-key').value='';document.querySelector('[data-tab="models"]').click();$('m-id').focus()}
+  async function loadModels(){const d=await request('/v1/admin/models');const xs=rows(d);$('model-list').innerHTML=xs.map(x=>`<div class="item"><h3>${esc(x.displayName||x.modelId)}</h3><div class="muted">${esc(x.modelId)} · ${Number(x.contextWindowTokens||0).toLocaleString()} tokens · ${x.enabled?'已启用':'已停用'}</div><div class="row"><button data-edit-model="${esc(x.modelId)}">编辑</button><button class="danger" data-toggle-model="${esc(x.modelId)}" data-enabled="${x.enabled?'false':'true'}">${x.enabled?'停用':'启用'}</button></div></div>`).join('')||'<p class="muted">暂无模型</p>';document.querySelectorAll('[data-edit-model]').forEach(b=>b.onclick=()=>editModel(xs.find(x=>x.modelId===b.dataset.editModel)));document.querySelectorAll('[data-toggle-model]').forEach(b=>b.onclick=async()=>{await request('/v1/admin/models/'+encodeURIComponent(b.dataset.toggleModel),{method:'PATCH',body:JSON.stringify({enabled:b.dataset.enabled==='true'})});await loadModels()});$('g-model').innerHTML=xs.filter(x=>x.enabled).map(x=>`<option value="${esc(x.modelId)}">${esc(x.displayName||x.modelId)}</option>`).join('')}
+  async function loadGrants(){const d=await request('/v1/admin/entitlements');$('grant-list').innerHTML=rows(d).map(x=>{const quota=Number(x.quota_tokens||0),used=Number(x.used_tokens||0),reserved=Number(x.reserved_tokens||0),remaining=Math.max(0,quota-used-reserved);return `<div class="item"><h3>${esc(x.email||x.user_id)} · ${esc(x.display_name||x.model_id)}</h3><span>${remaining.toLocaleString()} / ${quota.toLocaleString()} tokens · ${x.revoked_at?'已撤销':dateText(x.expires_at)||'有效'}</span>${x.revoked_at?'':`<button class="danger" data-revoke="${esc(x.id)}">撤销资格</button>`}</div>`}).join('')||'<p class="muted">暂无赠与</p>';document.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{if(confirm('撤销后模型和剩余额度会立即回收，继续？')){await request('/v1/admin/entitlements/'+encodeURIComponent(b.dataset.revoke)+'/revoke',{method:'POST'});await loadGrants()}})}
+  async function loadAudit(){const d=await request('/v1/admin/audit');$('audit-list').innerHTML=rows(d).map(x=>`<div class="item"><strong>${esc(x.action)}</strong> · ${esc(x.admin_email||'')}<div class="muted">${dateText(x.created_at)} · ${esc(x.object_id||'')} · ${esc(x.details||'')}</div></div>`).join('')||'<p class="muted">暂无记录</p>'}
+  $('connect').onclick=async()=>{api=$('api').value.trim();try{if(!$('email').value.trim()||!$('password').value)throw Error('请输入管理员邮箱和密码');const login=await rawRequest(rootUrl()+'/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('email').value.trim(),password:$('password').value})});$('password').value='';token=login.accessToken||'';if(!token)throw Error('登录接口没有返回访问令牌');await Promise.all([loadNotices(),loadModels(),loadGrants(),loadAudit()]);$('connection').textContent='已连接';status('登录成功；当前账号已通过管理员权限检查')}catch(e){token='';$('connection').textContent='连接失败';$('password').value='';status(e.message)}};
+  function renderNoticeRecipients(){const host=$('notice-user-selection');if(!selectedNoticeUsers.size){host.textContent='尚未选择收件人';return}host.innerHTML=[...selectedNoticeUsers].map(([id,email])=>`<span class="badge">${esc(email)} <button type="button" class="small" data-remove-notice-user="${esc(id)}" aria-label="移除 ${esc(email)}">×</button></span>`).join(' ');host.querySelectorAll('[data-remove-notice-user]').forEach(b=>b.onclick=()=>{selectedNoticeUsers.delete(b.dataset.removeNoticeUser);renderNoticeRecipients()})}
+  function syncNoticeAudience(){const personal=['gray_test','quota'].includes($('n-category').value);if(personal)$('n-audience').value='targeted';$('n-audience').disabled=personal;const targeted=$('n-audience').value==='targeted';$('notice-recipient-field').hidden=!targeted;if(!targeted){selectedNoticeUsers.clear();$('notice-user-list').replaceChildren();renderNoticeRecipients()}}
+  $('n-audience').onchange=syncNoticeAudience;
+  $('n-category').onchange=syncNoticeAudience;
+  $('publish').onclick=async()=>{try{const audience=$('n-audience').value,action=$('n-action').value;await request('/v1/admin/notifications',{method:'POST',body:JSON.stringify({title:$('n-title').value.trim(),body:$('n-body').value.trim(),category:$('n-category').value,audience,userIds:audience==='targeted'?[...selectedNoticeUsers.keys()]:[],action,actionValue:action==='activity'?$('n-action-value').value.trim():'',expiresAt:epoch($('n-expires').value),publish:true})});status('通知已发布');selectedNoticeUsers.clear();renderNoticeRecipients();$('n-title').value='';$('n-body').value='';await loadNotices()}catch(e){status(e.message)}};
+  $('save-model').onclick=async()=>{try{await request('/v1/admin/models',{method:'PUT',body:JSON.stringify({modelId:$('m-id').value.trim(),displayName:$('m-name').value.trim(),upstreamModel:$('m-model').value.trim(),upstreamBaseUrl:$('m-url').value.trim(),apiKey:$('m-key').value.trim()||null,contextWindowTokens:Number($('m-context').value),supportsThinkingToggle:$('m-thinking').checked,supportsThinkingLevels:$('m-levels').checked,supportsImages:$('m-images').checked,supportsFiles:$('m-files').checked,enabled:$('m-enabled').checked})});$('m-key').value='';status('模型已保存；凭据不会回显');await loadModels()}catch(e){status(e.message)}};
+  $('clear-model-form').onclick=clearModelForm;
+  $('grant-button').onclick=async()=>{try{await request('/v1/admin/entitlements',{method:'POST',body:JSON.stringify({userId:$('g-user').value.trim(),modelId:$('g-model').value,quotaTokens:Number($('g-quota').value),expiresAt:epoch($('g-expires').value)})});status('额度已赠与');await loadGrants();$('g-quota').value='';$('g-expires').value=''}catch(e){status(e.message)}};
+  async function searchUsers(query,forNotices){try{const q=query.trim();if(q.length<2)throw Error('请输入至少两个字符再搜索');const d=await request('/v1/admin/users?q='+encodeURIComponent(q));const users=rows(d);if(forNotices){$('notice-user-list').innerHTML=users.map(x=>`<div class="item row"><span>${esc(x.email)} · ${x.email_verified?'已验证':'未验证'}</span><button data-notice-user="${esc(x.id)}" data-email="${esc(x.email)}" ${x.email_verified?'':'disabled'}>${selectedNoticeUsers.has(x.id)?'已添加':'加入通知'}</button></div>`).join('')||'<p class="muted">没有匹配账号</p>';document.querySelectorAll('[data-notice-user]').forEach(b=>b.onclick=()=>{selectedNoticeUsers.set(b.dataset.noticeUser,b.dataset.email);renderNoticeRecipients();b.textContent='已添加'})}else{$('user-list').innerHTML=users.map(x=>`<div class="item row"><span>${esc(x.email)} · ${esc(x.id)}${x.email_verified?'':' · 未验证'}</span><button data-grant-user="${esc(x.id)}" ${x.email_verified?'':'disabled'}>用于额度赠与</button></div>`).join('')||'<p class="muted">没有匹配账号</p>';document.querySelectorAll('[data-grant-user]').forEach(b=>b.onclick=()=>$('g-user').value=b.dataset.grantUser)}}catch(e){status(e.message)}}
+  $('find-users').onclick=()=>searchUsers($('user-query').value,true);
+  $('find-grant-users').onclick=()=>searchUsers($('grant-user-query').value,false);
+  $('refresh-audit').onclick=()=>loadAudit().catch(e=>status(e.message));
+  const connect=$('connect');
+  const connectHandler=connect.onclick;
+  connect.onclick=async event=>{await connectHandler(event);$('disconnect').classList.toggle('hidden',!token)};
+  $('disconnect').onclick=()=>{token='';api='';$('password').value='';$('connection').textContent='已退出';$('disconnect').classList.add('hidden');document.querySelectorAll('.tabpane').forEach(x=>x.classList.remove('active'));$('notice').classList.add('active');status('工作台访问令牌已从当前页面清除')};
+})();
+</script>
+</body>
+</html>

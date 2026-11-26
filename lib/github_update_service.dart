@@ -57,6 +57,9 @@ class GitHubReleaseInfo {
 class GitHubUpdateService {
   GitHubUpdateService._();
 
+  static const latestReleasePageUrl =
+      'https://github.com/SymbioticUniverse/Cwhale-/releases/latest';
+
   static final Uri _latestReleaseUri = Uri.https(
     'api.github.com',
     '/repos/SymbioticUniverse/Cwhale-/releases/latest',

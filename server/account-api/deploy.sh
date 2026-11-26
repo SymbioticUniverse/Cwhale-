@@ -29,14 +29,22 @@ install -d -o root -g root -m 0755 "$RELEASE_DIR"
 PIP_CACHE_DIR="${PIP_CACHE_DIR:-/var/cache/cwhale-account-api/pip}"
 install -d -o root -g root -m 0750 "$PIP_CACHE_DIR"
 
-for file in main.py requirements.txt cwhale-account-api.service; do
+for file in main.py generation_queue.py operations.py requirements.txt cwhale-account-api.service; do
   install -o root -g root -m 0644 "$SOURCE_DIR/$file" "$RELEASE_DIR/$file"
 done
 
-python3 -m venv "$RELEASE_DIR/.venv"
-PIP_CACHE_DIR="$PIP_CACHE_DIR" \
-  "$RELEASE_DIR/.venv/bin/python" -m pip install --disable-pip-version-check \
-  --no-input --requirement "$RELEASE_DIR/requirements.txt"
+(
+  # The unprivileged service must be able to read its runtime even when
+  # the deployment caller uses a private umask for backups.
+  umask 022
+  python3 -m venv "$RELEASE_DIR/.venv"
+  PIP_CACHE_DIR="$PIP_CACHE_DIR" \
+    "$RELEASE_DIR/.venv/bin/python" -m pip install --disable-pip-version-check \
+    --no-input --requirement "$RELEASE_DIR/requirements.txt"
+)
+runuser -u cwhale-account -- "$RELEASE_DIR/.venv/bin/python" -B -c \
+  'import argon2, cryptography, fastapi, httpx, uvicorn'
+runuser -u cwhale-account -- test -x "$RELEASE_DIR/.venv/bin/uvicorn"
 
 if [[ ! -e "$ENV_FILE" ]]; then
   install -o root -g root -m 0600 /dev/null "$ENV_FILE"
@@ -50,8 +58,14 @@ CWH_SMTP_USER=
 CWH_SMTP_PASSWORD=
 CWH_SMTP_FROM=
 CWH_SMTP_FROM_NAME=Cwhale
+CWH_ADMIN_EMAILS=
 EOF
   unset auth_secret
+  chmod 0600 "$ENV_FILE"
+fi
+
+if ! grep -q '^CWH_ADMIN_EMAILS=' "$ENV_FILE"; then
+  printf '\n# Comma-separated verified account emails allowed to use the local admin workbench.\nCWH_ADMIN_EMAILS=\n' >>"$ENV_FILE"
   chmod 0600 "$ENV_FILE"
 fi
 

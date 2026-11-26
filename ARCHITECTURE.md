@@ -1,6 +1,6 @@
 # Cwhale 架构图与结构图
 
-> 本文根据当前仓库实现整理，用于审查现状。图中标注“后续”的能力尚未实现。项目没有 Cwhale 自有 API、账号、聊天存储或记忆服务器。
+> 本文根据当前仓库实现整理，用于审查现状。图中标注“后续”的能力尚未实现。Cwhale 有账号认证服务和用户主动选择的生成任务队列；默认模型请求仍由手机直连，服务器不保存完整聊天或记忆。
 
 ## 图 1：产品部署与外部边界
 
@@ -25,15 +25,20 @@ flowchart LR
   WX[wttr.in 天气页面]
   OS[手机系统文件选择器<br/>导入 / 选择应用打开]
   HOST[静态下载页与 APK 托管<br/>不参与对话请求]
-  AUTH[用户准备的账号服务器<br/>后续接入：仅邮箱认证]
+  AUTH[Cwhale 账号认证与生成任务 API]
+  QUEUE[可选持久任务队列<br/>账号 / 会话 / 消息 ID 严格绑定]
 
   U --> UI
   UI -->|生成开始 / 结束| FGS
   UI <--> DATA
   UI <--> FILES
   UI <--> KEY
-  UI <-->|HTTPS：模型请求与 SSE 回复| DS
-  UI <-->|HTTPS：当前对话所选档案| API
+  UI <-->|本机直连窗口：HTTPS/SSE| DS
+  UI <-->|本机直连窗口：HTTPS/SSE| API
+  UI -->|代管模式：用户同意后提交单窗口任务| AUTH
+  AUTH --> QUEUE
+  QUEUE <-->|代管窗口：HTTPS/SSE + 临时 API Key| DS
+  QUEUE <-->|代管窗口：HTTPS/SSE + 临时 API Key| API
   UI -->|模型 tool_call 且用户已授权| EXA
   UI -->|同一授权下并行搜索| DDG
   UI -->|同一授权下并行搜索| BAIDU
@@ -43,7 +48,7 @@ flowchart LR
   UI -->|明确询问天气时| WX
   UI <--> OS
   HOST -.->|下载 APK / 隐私政策| U
-  UI -.->|配置账号 HTTPS 地址后启用| AUTH
+  UI -.->|登录并同意后启用代管| AUTH
 ```
 
 ## 图 2：App 页面与导航结构
@@ -88,7 +93,7 @@ flowchart TD
 flowchart TB
   MAIN[main.dart<br/>应用入口、主题]
   SCREEN[chat_screen.dart<br/>页面状态与流程编排]
-  PLANNER[request_planner.dart<br/>只看本轮消息并选择 DIRECT / CONTEXT / TOOLS]
+  CAPABILITY[capability_prompt.dart<br/>按需提供功能清单]
   HUMANIZER[humanizer_skill.dart<br/>用户启用后才读取技能资源]
   HUMANIZERASSET[assets/skills/humanizer/SKILL.md<br/>MIT]
   MODELS[chat_models.dart<br/>消息、窗口、记忆、设置数据结构]
@@ -103,7 +108,7 @@ flowchart TB
 
   MAIN --> SCREEN
   SCREEN --> MODELS
-  SCREEN --> PLANNER
+  SCREEN --> CAPABILITY
   SCREEN --> HUMANIZER
   HUMANIZER --> HUMANIZERASSET
   SCREEN --> STORE
@@ -129,7 +134,7 @@ flowchart TB
 | --- | --- |
 | `lib/main.dart` | 建立 Flutter 应用、深色主题及系统栏样式 |
 | `lib/chat_screen.dart` | 主 UI；管理窗口状态、活动消息分页、请求、SSE 展示、工具回合、压缩、设置入口 |
-| `lib/request_planner.dart` | 首次只将当前消息与本轮获准的工具名称交给 LLM；选择直接回答、按需加载上下文或开放工具 |
+| `lib/capability_prompt.dart` | 用户询问应用能力时提供功能清单 |
 | `lib/humanizer_skill.dart` | 用户打开「说人话」后才从应用资源读取 Humanizer 提示词；未启用时不加载、不注入 |
 | `lib/chat_models.dart` | `ChatMessage`、带 `apiProfileId` 的 `ChatThread`、`ApiProfile`、重要记忆及设置序列化结构 |
 | `lib/api_profile_pages.dart` | API 档案列表、默认档案选择、添加/编辑/删除确认及每档上下文窗口设置 |
@@ -138,7 +143,7 @@ flowchart TB
 | `lib/direct_model_client.dart` | 按对话档案生成 OpenAI 兼容 Chat Completions 请求；Android 将请求交给前台任务引擎执行，其他平台在当前 Flutter 引擎执行 |
 | `lib/generation_protection.dart` | 启停 Android 本机前台服务、转发请求和 SSE 增量、管理并发请求 ID 与后台通知 |
 | `lib/model_stream_executor.dart` | 无 UI/存储依赖的 HTTPS/SSE 解析器，在 Android 前台任务引擎中运行并读取服务商 usage |
-| `lib/tool_executor.dart` | 执行路由器已选中且本轮获得用户授权的工具 |
+| `lib/tool_executor.dart` | 执行模型在正式请求中调用且本轮已开放的工具 |
 | `lib/office_tools.dart` | Office/文本读取，本地创建 Word/PPT/Excel 文件 |
 
 ## 图 4：普通聊天请求时序
@@ -148,7 +153,6 @@ sequenceDiagram
   autonumber
   actor User as 用户
   participant UI as ChatScreen
-  participant RP as RequestPlanner
   participant HS as HumanizerSkill
   participant MR as MemoryRouter
   participant LS as LocalStore
@@ -170,48 +174,24 @@ sequenceDiagram
     UI->>FGS: 启动前台服务并等待启动确认
     FGS-->>User: 显示“正在生成回复”通知
   end
-  UI->>RP: 当前消息 + 本轮已授权工具名称
-  RP->>DM: 路由请求；无聊天历史、无工具 schemas
-  DM->>FGS: Android 发送请求和临时 API Key
-  FGS->>DS: 手机直连 HTTPS Chat Completions，stream=true
-  DS-->>FGS: SSE 内容、工具调用与 usage
-  FGS-->>DM: 分批转发增量和最终结果
-  DS-->>RP: DIRECT / CONTEXT / TOOLS / CONTEXT_TOOLS
-  alt DIRECT
-    RP-->>UI: 路由模型的流式回复就是最终回复
-  else CONTEXT 或工具路线
-    opt 路由器判断需要对话上下文
-      UI->>MR: 按当前问题匹配窗口/全局记忆
-      MR-->>UI: 相关记忆和时间戳
-      UI->>LS: 读取近期消息、摘要或用户要求的归档命中
-      LS-->>UI: 受上下文预算限制的本机片段
-    end
-    opt 路由器选中已授权工具
-      UI->>TC: 仅取得被选中工具的定义
-    end
-    opt 达到档案自动压缩阈值
-      UI->>DM: 请求当前档案模型压缩较早对话（不提供工具）
-      DM->>DS: 独立 HTTPS Chat Completions 请求
-      DS-->>DM: SSE 摘要增量
-      DM-->>UI: 保存摘要并更新当前窗口摘要游标
-    end
-    UI->>DM: system 前缀 + 选中上下文 + 当前消息 + 选中工具 + 可选 Humanizer
-    DM->>DS: 档案 Base URL /chat/completions，Bearer + JSON
-    loop 接收 SSE，按模型 tool_call 和证据需要继续处理；无应用级搜索轮数上限
-      DS-->>DM: 文本 / reasoning_content / tool_calls 增量
-      DM-->>UI: onDelta 逐段显示回答
-      opt 模型返回已开放的工具调用
-        UI->>TC: 执行工具调用
-        opt web_search / open_web_page 且本轮获用户授权
-          TC->>DDG: 手机 HTTPS 直连公开搜索页
-          DDG-->>TC: 标题、来源链接、摘要或失败原因
-          TC->>WEB: 手机 HTTPS 读取所选公开页面
-          WEB-->>TC: 可引用正文片段
-        end
-        TC-->>UI: 工具结果
-        UI->>DM: 携带 tool_calls 与工具结果继续请求
-        DM->>DS: 后续 HTTPS 请求
-      end
+  UI->>MR: 匹配相关窗口和全局记忆
+  UI->>LS: 读取当前窗口历史、摘要和相关资料
+  UI->>TC: 根据开关和明确请求取得可用工具定义
+  opt 已开启自动压缩且达到档案阈值
+    UI->>DM: 请求压缩较早对话
+    DM-->>UI: 摘要
+    UI->>LS: 保存摘要并推进压缩游标
+  end
+  UI->>DM: 当前窗口历史 + 当前消息 + 可用工具
+  DM->>DS: Chat Completions SSE 请求
+  loop 接收流式文本或执行实际工具调用
+    DS-->>DM: 文本增量 / tool_calls / usage
+    DM-->>UI: 展示正文增量
+    opt 模型调用本轮开放的工具
+      UI->>TC: 执行工具
+      TC-->>UI: 实际结果或失败原因
+      UI->>DM: 附加工具结果继续生成
+      DM->>DS: 后续请求
     end
   end
   UI->>LS: 保存回复、推理内容、窗口与时间
@@ -222,11 +202,46 @@ sequenceDiagram
   UI-->>User: 展示完整回复和来源
 ```
 
-**边界说明：** 普通聊天回复通过 SSE 逐段展示。天气、时间和文件工具只在本条用户请求明确要求时提供。联网搜索开关只为当前模型请求授权；搜索不预先执行。模型判断有需要并返回 `web_search` 或 `open_web_page` tool call 后，手机才连接公开 HTTPS 来源及 Exa 托管 MCP，并将真实标题、链接、摘录或失败原因交回模型继续生成回复。搜索失败不能直接伪装成成功答案。压缩请求不带工具。用户打开「说人话」时，手机才加载随应用分发的 Humanizer skill，并将其加入本轮最终回复请求；普通路由调用不会携带该技能，关闭时也不会读入或发送技能提示词。`DirectModelClient` 会把全局系统提示词作为前缀添加到每次模型请求的 system 消息；设备本地时间戳开关打开后，每次请求还会附加本机时间 system message。模型请求和 AI 压缩均使用当前对话的 `apiProfileId` 指向的档案；新对话使用默认档案。所有档案仅支持 OpenAI 兼容 Chat Completions，不表示支持各服务商的专有协议。
+**边界说明：** 普通聊天回复通过 SSE 逐段展示。天气、时间和文件工具只在本条用户请求明确要求时提供。联网搜索开关只为当前模型请求授权；搜索不预先执行。模型判断有需要并返回 `web_search` 或 `open_web_page` tool call 后，手机才连接公开 HTTPS 来源及 Exa 托管 MCP，并将真实标题、链接、摘录或失败原因交回模型继续生成回复。搜索失败不能直接伪装成成功答案。压缩请求不带工具。用户打开「说人话」时，手机才加载随应用分发的 Humanizer skill，并将其加入本轮正式回复请求。`DirectModelClient` 会把全局系统提示词作为前缀添加到每次模型请求的 system 消息；设备本地时间戳开关打开后，每次请求还会附加本机时间 system message。模型请求和 AI 压缩均使用当前对话的 `apiProfileId` 指向的档案；新对话使用默认档案。所有档案仅支持 OpenAI 兼容 Chat Completions，不表示支持各服务商的专有协议。
 
 Android 用户发起模型请求后，Cwhale 启动本机前台服务并显示持续通知；前台任务引擎在服务中执行 HTTPS/SSE 请求，手机仍直接连接所选 API，不经过 Cwhale 服务器或代理。API Key 通过应用内任务通道仅传递给当前请求，不写入文件或通知。回复增量分批转回界面引擎并由其每两秒或达到增量阈值后写入本机断点。首个响应头等待上限为 180 秒，SSE 事件间无新数据等待上限为 10 分钟；后者不是整轮生成总时限。前台服务是尽力保持，不保证用户强行停止应用、厂商强制清理、网络/VPN切换或 Doze 期间请求一定完成；Doze 仍可能暂停网络。完成后回复并入聊天记录并清理断点；错误或重启后将未完成消息标记为中断并恢复最近落盘的部分内容。设备本机另记录有限大小的生成生命周期诊断（状态、耗时、前后台变化和接收字符数），不含提示词、回复正文或 API Key。
 
 联网 URL 必须为 HTTPS 域名，拒绝 IP 字面量、localhost、内网和本地文件。部分 VPN 会把公网站点域名解析到 `198.18.0.0/15` fake-IP 段，或返回 Dart 无法分类的合成 DNS 结果。固定配置的 Exa、DuckDuckGo、百度、Bing、Google 搜索入口使用精确主机名白名单，并继续校验 HTTPS 证书；其他结果网页仍要求 DNS 解析为公开地址，且通过 HTTPS 证书验证。
+
+### 可选服务器代管任务
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor U as 用户
+  participant UI as 当前窗口 Flutter 聊天页
+  participant Local as 本机窗口存储
+  participant Auth as Cwhale 账号 API
+  participant Queue as SQLite 持久任务队列
+  participant Provider as 当前窗口模型服务商
+
+  U->>UI: 登录后启用此窗口代管并确认数据范围
+  UI->>Local: 保存当前窗口运行方式
+  U->>UI: 发送消息
+  UI->>Local: 创建用户消息、回复消息与任务 ID
+  UI->>Auth: HTTPS 提交任务 + Bearer 登录令牌
+  Auth->>Queue: 校验账号 / 会话 ID / 两条消息 ID，加密入队
+  Auth-->>UI: 任务已排队
+  Queue->>Provider: 使用本任务的 API Key 发起 SSE 请求
+  loop 模型生成期间
+    Provider-->>Queue: 文本增量 / usage / 工具调用
+    Queue->>Queue: 加密保存回复快照和按序事件
+    UI->>Auth: 按同一任务与窗口 ID 续读
+    Auth-->>UI: 只返回绑定当前账号和消息的事件
+    UI->>Local: 保存收到的回复断点
+  end
+  Queue-->>Provider: 任务完成或失败后清除请求正文和 API Key
+  UI->>Local: 写入回复、用量并清理任务 ID
+```
+
+服务器队列默认上限为 10 个活动任务、每账号 2 个活动任务和 100 个排队任务。请求、API Key、最终结果和回复事件以 AES-GCM 加密保存在既有账号 SQLite 库；任务完成或失败时删除请求与 API Key，回复事件最长保留 7 天。客户端创建任务时先在本机保存 task ID；提交超时后以相同 ID 重试，避免重复扣费。客户端恢复后必须同时提供账号、窗口 ID、用户消息 ID 和回复消息 ID 才能续读，任何一项不匹配都会拒绝。服务器进程重启时，运行中的上游请求不会自动重放，以避免重复计费；队列保留的部分回复可恢复，未完成任务标记失败。免费模型不经过此队列，继续固定手机直连。
+
+服务器代管托管的是模型 API 请求，不在服务器上执行手机文件、网页搜索等本机工具；如果回复需要这类工具，应用恢复后才会执行工具并提交后续请求。
 
 ## 图 5：上下文拼装与 AI 压缩
 
@@ -465,6 +480,8 @@ flowchart LR
     TEMP[(临时文件)]
   end
   APP[Cwhale Flutter 运行时]
+  AUTH[Cwhale 账号认证 API]
+  TASKS[登录后可选的代管任务队列]
   DEEPSEEK[当前对话选定的 API 档案]
   SEARCH[Exa MCP、DuckDuckGo、百度、Bing、Google / 搜索结果网页]
   WEATHER[wttr.in]
@@ -475,7 +492,10 @@ flowchart LR
   APP <--> GLOBAL
   APP <--> KEY
   APP <--> TEMP
-  APP -->|HTTPS：消息、窗口上下文、匹配记忆<br/>Authorization: Bearer API Key| DEEPSEEK
+  APP -->|本机直连：HTTPS 消息 / 窗口上下文 / 匹配记忆| DEEPSEEK
+  APP -->|用户同意后：当前窗口任务 + 登录令牌| AUTH
+  AUTH --> TASKS
+  TASKS -->|代管窗口：当前请求和临时 API Key| DEEPSEEK
   DEEPSEEK -->|SSE 回复 / reasoning / tool_calls| APP
   APP -->|模型 tool_call 且本条已获用户授权时直连搜索| SEARCH
   APP -->|城市名与网络请求| WEATHER
@@ -485,8 +505,9 @@ flowchart LR
 
 ### 数据出境/上传规则
 
-- 不发送到 Cwhale 自有服务器：项目没有自有 API 服务器。
-- 用户发送消息后，本轮上下文、当前窗口记忆及匹配到的全局记忆直接发给当前对话选定的 API；API Key 作为 Bearer 凭证直达该档案 Base URL。DeepSeek 保留默认档案；其他档案限 OpenAI 兼容 Chat Completions。
+- 默认直连模式不发送聊天或模型 API Key 到 Cwhale 服务器；请求直接发给当前对话选定的 API。
+- 用户登录并明确选择服务器代管后，仅当前窗口的消息、必要上下文、可能产生的工具定义/结果与该档案 API Key 发给 Cwhale 任务队列，再转发至模型服务商。任务严格绑定账号、窗口、用户消息和回复消息 ID；服务器加密暂存，完成或失败后清除请求与 API Key，回复事件最多保留 7 天。
+- 登录认证本身只处理邮箱、密码哈希、验证和会话，不读取聊天或记忆。免费模型固定走手机直连，不经过代管队列。
 - 只有持续搜索开关开启或本条明确要求搜索时，模型才可调用搜索工具；该工具被调用后，手机访问 Exa MCP、DuckDuckGo、百度、Bing、Google 或被选中的目标网页。天气仍需本条明确请求。
 - Office 文件首先在本机读写；文档摘要所需的原文或切片由手机直接发给当前对话档案，模型普通对话只收到本机总览和匹配的摘要。生成文件保存在应用本机目录并以聊天文件卡片显示，用户点卡片后由系统选择其他应用打开。
 - Android manifest 禁止自动备份；iOS AppDelegate 将应用支持目录标记为排除备份。Keychain 项设置为不同步。
@@ -623,8 +644,9 @@ flowchart LR
 | 本机重要记忆严格路由、按主题删除所有版本及窗口副本 | 已实现 |
 | chats-v1 无损迁移、按窗口分块和活动消息分页 | 已实现 |
 | 本机 JSON 聊天/记忆；本机安全存储 API Key | 已实现 |
-| 向量数据库、Embedding、RAG、会员增值/账号/同步服务 | 未实现，后续范围 |
-| Cwhale 自有 API 转发或聊天后端 | 不在当前架构中 |
+| Cwhale 邮箱账号注册、验证、登录与找回 | 已实现 |
+| 登录后可选的服务器代管队列、并发上限、加密存储和绑定续接 | 已实现，需部署后配置公开 HTTPS 地址 |
+| 向量数据库、Embedding、RAG、会员增值与跨设备聊天同步 | 未实现，后续范围 |
 
 ## 图 14：文档本机分层摘要与按需回读
 

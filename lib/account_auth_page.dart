@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
 import 'account_auth_service.dart';
+import 'execution_mode_guide_page.dart';
+import 'local_store.dart';
 
 Color get _authInk => CwhaleTheme.ink;
 Color get _authMuted => CwhaleTheme.muted;
@@ -72,7 +74,11 @@ class _AccountAuthPageState extends State<AccountAuthPage> {
           _user = user;
           _flow = _AccountFlow.account;
         });
-        if (widget.returnOnSuccess) _returnAfterAuth();
+        if (widget.returnOnSuccess) {
+          _returnAfterAuth();
+        } else {
+          await _showExecutionModeGuideIfNeeded();
+        }
       }
     } on AccountAuthException catch (error) {
       if (mounted) _showMessage(error.message);
@@ -121,8 +127,12 @@ class _AccountAuthPageState extends State<AccountAuthPage> {
         rethrow;
       }
     });
-    if (_service.currentUser != null && widget.returnOnSuccess) {
-      _returnAfterAuth();
+    if (_service.currentUser != null) {
+      if (widget.returnOnSuccess) {
+        _returnAfterAuth();
+      } else {
+        await _showExecutionModeGuideIfNeeded();
+      }
     }
   }
 
@@ -170,8 +180,12 @@ class _AccountAuthPageState extends State<AccountAuthPage> {
         _flow = _AccountFlow.account;
       });
     });
-    if (_service.currentUser != null && widget.returnOnSuccess) {
-      _returnAfterAuth();
+    if (_service.currentUser != null) {
+      if (widget.returnOnSuccess) {
+        _returnAfterAuth();
+      } else {
+        await _showExecutionModeGuideIfNeeded();
+      }
     }
   }
 
@@ -295,6 +309,20 @@ class _AccountAuthPageState extends State<AccountAuthPage> {
         Navigator.of(context).pop(true);
       }
     });
+  }
+
+  Future<void> _showExecutionModeGuideIfNeeded() async {
+    final store = LocalStore();
+    try {
+      if (await store.hasCompletedExecutionModeGuide() || !mounted) return;
+    } catch (_) {
+      return;
+    }
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (context) => const ExecutionModeGuidePage(),
+      ),
+    );
   }
 
   void _back() {

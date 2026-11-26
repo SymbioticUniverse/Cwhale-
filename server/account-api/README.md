@@ -1,8 +1,14 @@
 # Cwhale 邮箱账号 API
 
-本服务实现 [`ACCOUNT_AUTH_PLAN.md`](../../ACCOUNT_AUTH_PLAN.md) 中的邮箱注册、邮箱验证、登录、找回密码和 refresh token 轮换接口。只保存账号认证所需的邮箱、Argon2id 密码哈希、一次性验证码哈希、会话撤销记录和不可逆的限流键；不提供聊天、记忆、API Key 或文件的上传接口。
+本服务实现邮箱注册、验证、登录和密码找回，并提供用户主动选择的服务器代管生成任务队列。未启用代管时，服务只处理账号认证，不接收聊天、记忆或 API Key。
 
-部署到 Ubuntu 服务器后，服务只监听 `127.0.0.1:8810`，现有 Nginx HTTPS 站点将 `/v1/auth/` 反向代理到它。静态官网的 root/location 保持原样。SQLite 数据库位于 `/var/lib/cwhale-account/`，应纳入服务器加密备份。
+部署到 Ubuntu 服务器后，服务只监听本机回环地址，现有 Nginx HTTPS 站点反向代理 /v1/auth/ 与 /v1/generation/。完整聊天原文和记忆仍留在用户设备；代管任务只保存执行当前请求所需的数据。SQLite 位于服务数据目录，应纳入服务器加密备份。
+
+## 服务器代管队列
+
+生成任务绑定账号 ID、窗口 ID、用户消息 ID、回复消息 ID 和幂等任务 ID。默认全局同时运行 10 个任务、每账号最多 2 个，最多保留 100 个等待任务；通过 CWH_SERVER_MAX_ACTIVE_TASKS、CWH_SERVER_MAX_ACTIVE_PER_USER、CWH_SERVER_MAX_QUEUED_TASKS 调整。任务正文、模型 API Key、回复增量和最终用量均使用服务器 secret 派生的 AES-GCM 密钥加密写入 SQLite。任务完成或失败时清除请求正文和 API Key，回复事件最多保留 7 天。服务重启后不自动重发已运行的模型请求，以避免重复计费；等待中的任务可继续排队。
+
+生产前须将 generation_queue.py 一并部署；仓库内的 server/account-api/deploy.sh 会安装所需源文件和依赖。
 
 ## 必需的邮件配置
 
@@ -33,6 +39,8 @@ curl --fail http://127.0.0.1:8810/healthz
 ```
 
 将 `nginx-location.conf` 中的 `location` 块加入现有 HTTPS server block，在不删除网站其他配置的前提下执行 `nginx -t`，通过后再 reload Nginx。确认部署时配置的公开 HTTPS 地址下 `/v1/auth/...` 返回 JSON，而不是官网 HTML。
+
+通知和灰度额度还需要转发 `/v1/notifications`、`/v1/notifications/`、`/v1/me/gray-models` 和 `/v1/admin/`。已有站点可用 `enable-nginx-route.py` 补齐缺少的路由。管理员邮箱名单通过服务器私有环境变量 `CWH_ADMIN_EMAILS` 配置。
 
 ## APK 配置
 
